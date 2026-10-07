@@ -1,0 +1,29 @@
+{
+  "name": "@yanzheng/core",
+  "version": "0.6.0",
+  "type": "module",
+  "description": "研证评卷引擎核心：确定性门检 / 4团13员评卷 / 两级仲裁 / skills / 报告",
+  "license": "MIT",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "pptxgenjs": "^4.0.1",
+    "unpdf": "^1.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

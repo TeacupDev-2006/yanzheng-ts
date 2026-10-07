@@ -1,0 +1,26 @@
+{
+  "name": "yanzheng-monorepo",
+  "version": "0.6.0",
+  "private": true,
+  "description": "研证 · 毕业论文评卷团 Agent —— TypeScript 重构版，原生运行于 AGH (Agnes Harness) 底座",
+  "type": "module",
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=24.10.0"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "demo": "pnpm --filter @yanzheng/cli demo",
+    "web": "pnpm --filter @yanzheng/web start",
+    "journeys": "node scripts/user-journeys.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsup": "^8.5.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

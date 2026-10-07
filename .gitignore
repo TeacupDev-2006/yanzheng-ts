@@ -1,0 +1,21 @@
+node_modules/
+dist/
+*.tsbuildinfo
+coverage/
+
+# 会话/工具状态目录
+.mimosa/
+.zcode/
+.playwright-mcp/
+
+# 生成的评卷产物（可随时重新生成）
+*报告.html
+*报告.pptx
+demo_*.html
+demo_*.pptx
+真实*.html
+真实*.pptx
+
+# AGH 执行记录（闭环运行时的导出产物）
+docs/AGH执行记录*
+

@@ -1,0 +1,38 @@
+{
+ "demo": {
+  "word_count": 1267,
+  "format_issues": [],
+  "warnings": [
+   "未见英文摘要（Abstract）",
+   "未见目录页",
+   "参考文献仅 5 条（建议 ≥8 条）"
+  ],
+  "dup_rate_vs_corpus": 0.0
+ },
+ "good": {
+  "word_count": 10074,
+  "format_issues": [],
+  "warnings": [],
+  "dup_rate_vs_corpus": 0.0
+ },
+ "corpus_names": [
+  "source1.txt",
+  "source2.txt"
+ ],
+ "dupcase": {
+  "word_count": 300,
+  "format_issues": [
+   "缺少必备章节：摘要/Abstract",
+   "缺少必备章节：绪论/引言/研究背景",
+   "缺少必备章节：结论/总结/结束语",
+   "缺少必备章节：参考文献/References"
+  ],
+  "warnings": [
+   "摘要后未见「关键词」标注",
+   "未见英文摘要（Abstract）",
+   "未见目录页"
+  ],
+  "dup_rate_vs_corpus": 0.9012738853503185
+ },
+ "dup_text_sha_note": "dupcase = tests/data/corpus/source1.txt 原文 + 一句扩展（由测试脚本按同一规则构造）"
+}

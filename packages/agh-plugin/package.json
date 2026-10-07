@@ -1,0 +1,34 @@
+{
+  "name": "@yanzheng/agh-plugin",
+  "version": "0.6.0",
+  "type": "module",
+  "description": "研证 · 毕业论文评卷团 — AGH 底座插件：确定性评卷工具链（门检/章节切分/分块查重）+ TS 原生全流程评卷（无需 Python）",
+  "license": "MIT",
+  "exports": "./dist/index.js",
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.37",
+    "@yanzheng/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "agnes": {
+    "plugins": [
+      {
+        "export": "thesisReviewTools",
+        "id": "ext:yanzheng/agh-plugin",
+        "inject": [
+          "extension"
+        ]
+      }
+    ]
+  }
+}

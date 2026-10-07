@@ -1,0 +1,33 @@
+{
+  "name": "@yanzheng/cli",
+  "version": "0.6.0",
+  "type": "module",
+  "description": "研证 CLI：命令行评卷入口（毕业论文评卷团 Agent）",
+  "license": "MIT",
+  "bin": {
+    "yanzheng": "./bin/yanzheng.mjs"
+  },
+  "exports": {
+    ".": "./dist/main.js"
+  },
+  "types": "./dist/main.d.ts",
+  "files": [
+    "bin",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "demo": "tsx src/demo.ts",
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@yanzheng/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsup": "^8.5.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

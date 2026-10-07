@@ -1,0 +1,47 @@
+{
+ "fraud_citation": [
+  {
+   "type": "引用捏造",
+   "keywords": [
+    "[13]",
+    "LibraryGPT"
+   ],
+   "desc": "参考文献[13] LibraryGPT 整条虚构"
+  }
+ ],
+ "fraud_data": [
+  {
+   "type": "数据不一致",
+   "keywords": [
+    "23.9"
+   ],
+   "desc": "5.4 节转化率 23.9% 与摘要/其他处 18.7% 矛盾"
+  }
+ ],
+ "fraud_mixed": [
+  {
+   "type": "数据不一致",
+   "keywords": [
+    "2,317",
+    "2317"
+   ],
+   "desc": "在线用户数 2,317 与摘要 1,264 矛盾"
+  },
+  {
+   "type": "结果与方法矛盾",
+   "keywords": [
+    "Transformer",
+    "实时排序"
+   ],
+   "desc": "5.4 突然出现 Transformer 精排，与全文邻域方法矛盾"
+  },
+  {
+   "type": "引用捏造",
+   "keywords": [
+    "[13]",
+    "LibraryGPT"
+   ],
+   "desc": "参考文献[13] 虚构"
+  }
+ ]
+}
