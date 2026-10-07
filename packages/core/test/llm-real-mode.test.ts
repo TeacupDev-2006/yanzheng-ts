@@ -5,7 +5,8 @@
  */
 
 import { createServer, type Server } from 'node:http'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import dns from 'node:dns/promises'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LLMClient, listModels } from '../src/llm/client.js'
 import { reviewPaper } from '../src/engine.js'
 
@@ -147,22 +148,29 @@ describe('LLM 真实模式（本地 OpenAI 兼容服务器）', () => {
     expect(() => new LLMClient({ apiKey: 'k', baseUrl: 'file:///etc' })).toThrow(/仅允许 http\/https/)
   })
 
-  it('listModels：拉取 OpenAI 兼容 /models 并去重排序', async () => {
-    const server = createServer((req, res) => {
-      if (req.url?.endsWith('/models')) {
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ data: [{ id: 'model-b' }, { id: 'model-a' }, { id: 'model-a' }, {}] }))
-        return
-      }
-      res.writeHead(404).end()
-    })
-    FIXTURES.push(server)
-    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
-    const addr = server.address()
-    const port = typeof addr === 'object' && addr ? addr.port : 0
-    const ids = await listModels({ baseUrl: `http://127.0.0.1:${port}/v1`, apiKey: 'k' })
-    expect(ids).toEqual(['model-a', 'model-b'])
+  it('listModels：经 SSRF 守卫——scheme/私网拒绝，公网端点去重排序', async () => {
+    // 私网/环回端点直接被守卫拦截（本地推理服务不支持拉取，型号手输）
+    await expect(listModels({ baseUrl: 'http://127.0.0.1:8622/v1', apiKey: 'k' })).rejects.toThrow(
+      /拒绝本地|私有\/保留/,
+    )
     await expect(listModels({ baseUrl: 'ftp://example.com' })).rejects.toThrow(/仅允许 http\/https/)
+
+    // 公网端点：mock 解析与 fetch，验证解析/去重/排序逻辑
+    const lookupSpy = vi.spyOn(dns, 'lookup').mockResolvedValue([{ address: '93.184.216.34', family: 4 }] as never)
+    const fetchSpy = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ id: 'model-b' }, { id: 'model-a' }, { id: 'model-a' }, {}] }), {
+        status: 200,
+      }),
+    )
+    vi.stubGlobal('fetch', fetchSpy)
+    try {
+      const ids = await listModels({ baseUrl: 'https://api.example.com/v1', apiKey: 'k' })
+      expect(ids).toEqual(['model-a', 'model-b'])
+      expect((fetchSpy.mock.calls[0] as unknown[])[0]).toBe('https://api.example.com/v1/models')
+    } finally {
+      lookupSpy.mockRestore()
+      vi.unstubAllGlobals()
+    }
   })
 
   it('thinkingStyle=off：请求体不携带 thinking 字段（第三方端点兼容）', async () => {

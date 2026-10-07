@@ -11,6 +11,8 @@
  *   YANZHENG_LLM_BASE_URL / YANZHENG_MODEL_JUDGE / YANZHENG_MODEL_ARBITER / YANZHENG_API_KEY
  */
 
+import { guardedFetch } from '../skills/http-guard.js'
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
@@ -104,25 +106,23 @@ export function assertHttpScheme(baseUrl: string): string {
   return base
 }
 
-/** 拉取 OpenAI 兼容端点的模型清单（GET {base}/models），返回去重排序的模型 id。 */
+/** 拉取 OpenAI 兼容端点的模型清单（GET {base}/models），返回去重排序的模型 id。
+ *  与所有技能出站请求一样经 SSRF 守卫（仅 http/https 公网端点可拉取；
+ *  本地/内网推理服务不提供拉取，型号由用户手输——chat 调用不受此限制）。 */
 export async function listModels(opts: {
   baseUrl: string
   apiKey?: string | null
   timeoutMs?: number
 }): Promise<string[]> {
   const base = assertHttpScheme(opts.baseUrl)
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 8000)
   let resp: Response
   try {
-    resp = await fetch(`${base}/models`, {
+    resp = await guardedFetch(`${base}/models`, {
+      timeoutMs: opts.timeoutMs ?? 8000,
       headers: opts.apiKey ? { Authorization: `Bearer ${opts.apiKey}` } : {},
-      signal: controller.signal,
     })
   } catch (exc) {
-    throw new LLMError(`无法连接端点（${base}/models）：${exc instanceof Error ? exc.message : String(exc)}`)
-  } finally {
-    clearTimeout(timer)
+    throw new LLMError(`无法拉取模型列表（${base}/models）：${exc instanceof Error ? exc.message : String(exc)}`)
   }
   if (!resp.ok) {
     throw new LLMError(`拉取模型列表失败：HTTP ${resp.status}`)

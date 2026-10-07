@@ -279,7 +279,7 @@ const INDEX_HTML = `<!DOCTYPE html>
     </div>
     <div class="row-btns">
       <button type="button" class="ghost" id="pull-models">从端点拉取模型列表</button>
-      <span id="pull-status" class="subnote" style="align-self:center">DeepSeek 预设已内置现行型号目录；其他端点填好地址（和 key）后点此拉取真实型号。</span>
+      <span id="pull-status" class="subnote" style="align-self:center">DeepSeek 预设已内置现行型号目录；其他公网端点填好地址（和 key）后点此拉取真实型号（本地/内网端点不提供拉取，型号请手输）。</span>
     </div>
     <p class="subnote">评卷员默认走「评卷档」（非思考），团长与总仲裁走「仲裁档」（思考模式）。任何 OpenAI 兼容端点均可，本地服务（http://127.0.0.1:...）亦可；模型可从下拉选择，也可直接输入任意型号。</p>
 

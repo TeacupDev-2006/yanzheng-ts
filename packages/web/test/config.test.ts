@@ -4,7 +4,6 @@
  */
 
 import { serve } from '@hono/node-server'
-import { createServer } from 'node:http'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
@@ -174,28 +173,8 @@ describe('具体模型选择（/llm/models 代理 + 页面目录）', () => {
     expect(html).toContain("thinking: 'off'")
   })
 
-  it('/llm/models：成功拉取（去重排序）、scheme 拒绝、上游失败 502', async () => {
+  it('/llm/models：scheme 校验 400；非公网端点被 SSRF 守卫拦截 502', async () => {
     const base = await startServer()
-    // 本地 OpenAI 兼容夹具：GET /v1/models
-    const fixture = createServer((req, res) => {
-      if (req.url?.endsWith('/models')) {
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ data: [{ id: 'local-pro' }, { id: 'local-flash' }, { id: 'local-flash' }] }))
-        return
-      }
-      res.writeHead(404).end()
-    })
-    await new Promise<void>((done) => fixture.listen(0, '127.0.0.1', done))
-    const addr = fixture.address()
-    const fixturePort = typeof addr === 'object' && addr ? addr.port : 0
-
-    const ok = await fetch(base + '/llm/models', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: `http://127.0.0.1:${fixturePort}/v1`, key: 'local-fixture' }),
-    })
-    expect(ok.status).toBe(200)
-    expect(await ok.json()).toEqual({ models: ['local-flash', 'local-pro'] })
 
     const badScheme = await fetch(base + '/llm/models', {
       method: 'POST',
@@ -205,13 +184,13 @@ describe('具体模型选择（/llm/models 代理 + 页面目录）', () => {
     expect(badScheme.status).toBe(400)
     expect((await badScheme.json()).error).toContain('仅允许 http/https')
 
-    const dead = await fetch(base + '/llm/models', {
+    // TEST-NET-3 保留地址：守卫在 host 字面量校验即拦截，不发出任何网络请求
+    const reserved = await fetch(base + '/llm/models', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: 'http://127.0.0.1:1/v1' }),
+      body: JSON.stringify({ url: 'http://203.0.113.1/v1' }),
     })
-    expect(dead.status).toBe(502)
-    expect((await dead.json()).error).toBeTruthy()
-    fixture.close()
+    expect(reserved.status).toBe(502)
+    expect((await reserved.json()).error).toContain('私有/保留')
   })
 })
