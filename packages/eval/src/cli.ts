@@ -36,6 +36,7 @@ export async function main(argv: string[]): Promise<number> {
         refs: { type: 'string' },
         csv: { type: 'string' },
         out: { type: 'string' },
+        samples: { type: 'string' },
         help: { type: 'boolean', short: 'h', default: false },
       },
       allowPositionals: true,
@@ -56,9 +57,19 @@ export async function main(argv: string[]): Promise<number> {
 
   if (cmd === 'score-compare') {
     const limit = Number.parseInt(args.values.limit ?? '5', 10) || 5
-    console.log(`拉取 OpenReview 样本（${args.values.venue} × ${limit}）…`)
-    const samples = await fetchOpenReviewSamples({ venueId: args.values.venue!, limit })
-    console.log(`有效样本 ${samples.length} 篇`)
+    let samples
+    if (args.values.samples) {
+      // 离线导入：人工从 OpenReview 导出/合成的样本 JSON（OpenReview 反爬挑战拦截服务器直连时的兜底）
+      const { readFile: rf } = await import('node:fs/promises')
+      const { toSamples } = await import('./score-compare.js')
+      const raw = JSON.parse(await rf(args.values.samples, 'utf-8')) as Parameters<typeof toSamples>[0]
+      samples = toSamples(raw).slice(0, limit)
+      console.log(`离线导入样本 ${samples.length} 篇（${args.values.samples}）`)
+    } else {
+      console.log(`拉取 OpenReview 样本（${args.values.venue} × ${limit}）…`)
+      samples = await fetchOpenReviewSamples({ venueId: args.values.venue!, limit })
+      console.log(`有效样本 ${samples.length} 篇`)
+    }
     const apiKey = args.values.real ? process.env.YANZHENG_API_KEY ?? null : null
     if (args.values.real && !apiKey) {
       console.error('--real 需要 YANZHENG_API_KEY 环境变量')
@@ -73,7 +84,10 @@ export async function main(argv: string[]): Promise<number> {
     })
     const md = renderComparisonMarkdown(result)
     console.log(md)
-    if (out) await writeFile(out, JSON.stringify(result, null, 2), 'utf-8')
+    if (out) {
+      await writeFile(out, JSON.stringify(result, null, 2), 'utf-8')
+      console.log(`JSON 已写入: ${out}`)
+    }
     return 0
   }
 

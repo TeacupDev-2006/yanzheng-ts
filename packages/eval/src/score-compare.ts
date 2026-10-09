@@ -12,6 +12,30 @@ import { reviewPaper, type ReviewReport } from '@yanzheng/core'
 import type { MockFn } from '@yanzheng/core'
 import type { OpenReviewSample } from './openreview.js'
 
+/** 手工导出/合成样本的导入格式（OpenReview 页面人工复制即可构造）。 */
+export interface RawSample {
+  title: string
+  abstract: string
+  /** 官方评审评分（原始量表，如 1~10），多篇评审取平均 */
+  ratings?: (number | string)[]
+  /** 评审文本（可选，供定性对照） */
+  reviews?: string[]
+}
+
+/** RawSample → OpenReviewSample（rating 字符串自动解析）。 */
+export function toSamples(raw: RawSample[]): OpenReviewSample[] {
+  return raw.map((r, i) => {
+    const nums = (r.ratings ?? []).map((v) => (typeof v === 'number' ? v : Number.parseFloat(String(v)) || 0))
+    return {
+      id: `sample-${i + 1}`,
+      title: r.title,
+      abstract: r.abstract,
+      humanScore: nums.length ? nums.reduce((a: number, b: number) => a + b, 0) / nums.length : null,
+      reviewsText: r.reviews ?? [],
+    }
+  })
+}
+
 export interface SamplePair {
   id: string
   title: string
@@ -152,7 +176,10 @@ export function renderComparisonMarkdown(c: ScoreComparison): string {
     `- 模式：${c.mode} · 配对样本：${c.pairs.length}（带人类评分 ${c.pairs.filter((p) => p.humanScore10 !== null).length}）`,
     `- Spearman 秩相关：${c.spearman === null ? 'n/a' : c.spearman.toFixed(3)}`,
     `- 分布重合度（10 桶交集）：${c.overlap === null ? 'n/a' : (c.overlap * 100).toFixed(1) + '%'}`,
-    `- 说明：${c.note}`,
+    '- 说明：' + c.note,
+    ...(c.spearman !== null && c.spearman >= 0.8 && (c.overlap ?? 1) < 0.2
+      ? ['> 标定提示：排名高度一致但绝对分分布不重叠——摘要级短文本的 AI 绝对分天然偏低（信息量少于全文），', '> 故**秩相关是本实验的主指标**；绝对分标定需全文模式（接 PDF 拉取）后重测。']
+      : []),
     '',
     '| # | 论文 | AI 分 | 人类分(×10) | 研证扣分点数 |',
     '|---|---|---|---|---|',
