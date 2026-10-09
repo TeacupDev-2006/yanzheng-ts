@@ -174,16 +174,14 @@ export function createApp(): Hono {
 function presetLabel(preset: string): string {
   const names: Record<string, string> = {
     deepseek: 'DeepSeek',
-    openai: 'OpenAI',
-    anthropic: 'Anthropic',
-    gemini: 'Google Gemini',
     kimi: 'Kimi',
-    qwen: 'Qwen',
+    qwen: 'Qwen 通义千问',
     glm: 'GLM',
-    xai: 'xAI',
+    doubao: '豆包',
+    ernie: '文心一言',
+    hunyuan: '混元',
+    spark: '星火',
     minimax: 'MiniMax',
-    openrouter: 'OpenRouter',
-    agnes: 'Agnes 赛事端点',
     custom: '自定义端点',
   }
   return names[preset] ?? preset
@@ -379,19 +377,17 @@ const CONFIG_HTML = `<!DOCTYPE html>
   <div class="double"></div>
 
   <div class="section-label">审 稿 人（AI）</div>
-  <label>厂 商 预 设</label>
+  <label>厂 商 预 设（国内主流大模型）</label>
   <select id="llm_preset">
-    <option value="deepseek">DeepSeek（官方端点 · 双档型号）</option>
-    <option value="openai">OpenAI（GPT 系列 · OpenAI 兼容）</option>
-    <option value="anthropic">Anthropic（Claude 系列 · OpenAI 兼容层）</option>
-    <option value="gemini">Google Gemini（OpenAI 兼容层）</option>
+    <option value="deepseek">DeepSeek（深度求索 · 官方端点）</option>
     <option value="kimi">Kimi（月之暗面 Moonshot）</option>
-    <option value="qwen">Qwen（阿里云百炼 · OpenAI 兼容）</option>
+    <option value="qwen">Qwen 通义千问（阿里云百炼）</option>
     <option value="glm">GLM（智谱 BigModel）</option>
-    <option value="xai">xAI（Grok 系列）</option>
-    <option value="minimax">MiniMax</option>
-    <option value="openrouter">OpenRouter（聚合 · 可拉取数百型号）</option>
-    <option value="agnes">Agnes 赛事端点（自行填写地址与型号）</option>
+    <option value="doubao">豆包（火山方舟 · 字节跳动）</option>
+    <option value="ernie">文心一言（百度千帆）</option>
+    <option value="hunyuan">混元（腾讯云）</option>
+    <option value="spark">星火（讯飞开放平台）</option>
+    <option value="minimax">MiniMax（海螺）</option>
     <option value="custom">自定义 OpenAI 兼容端点（如本地模型服务）</option>
   </select>
   <div class="cfg-grid">
@@ -457,42 +453,12 @@ const CONFIG_HTML = `<!DOCTYPE html>
         { id: DS.judge, label: 'DeepSeek-V4.1-Flash · 非思考（仲裁不建议）' }
       ]
     },
-    openai: {
-      base: 'https://api.openai.com/v1', thinking: 'off',
-      judge: [
-        { id: 'gpt-5-mini', label: 'GPT-5 mini · 高性价比 · 评卷推荐' },
-        { id: 'gpt-5-nano', label: 'GPT-5 nano · 最快最便宜' },
-        { id: 'gpt-4.1-mini', label: 'GPT-4.1 mini · 非思考' }
-      ],
-      arbiter: [
-        { id: 'gpt-5', label: 'GPT-5 · 旗舰 · 仲裁推荐' },
-        { id: 'gpt-5-mini', label: 'GPT-5 mini · 轻量仲裁' }
-      ]
-    },
-    anthropic: {
-      base: 'https://api.anthropic.com/v1', thinking: 'off',
-      judge: [
-        { id: 'claude-haiku-4-5', label: 'Haiku 4.5 · 快 · 评卷推荐' },
-        { id: 'claude-sonnet-4-5', label: 'Sonnet 4.5 · 均衡' }
-      ],
-      arbiter: [
-        { id: 'claude-opus-4-1', label: 'Opus 4.1 · 旗舰 · 仲裁推荐' },
-        { id: 'claude-sonnet-4-5', label: 'Sonnet 4.5 · 轻量仲裁' }
-      ]
-    },
-    gemini: {
-      base: 'https://generativelanguage.googleapis.com/v1beta/openai', thinking: 'off',
-      judge: [
-        { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash · 评卷推荐' },
-        { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite · 最快最便宜' }
-      ],
-      arbiter: [ { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro · 仲裁推荐' } ]
-    },
     kimi: {
       base: 'https://api.moonshot.cn/v1', thinking: 'off',
       judge: [
         { id: 'kimi-k2-turbo-preview', label: 'K2 Turbo · 快 · 评卷推荐' },
-        { id: 'kimi-k2-0905-preview', label: 'K2 · 标准档' }
+        { id: 'kimi-k2-0905-preview', label: 'K2 · 标准档' },
+        { id: 'moonshot-v1-32k', label: 'Moonshot V1 (32K) · 长文本' }
       ],
       arbiter: [
         { id: 'kimi-k2-thinking', label: 'K2 Thinking · 思考 · 仲裁推荐' },
@@ -503,7 +469,8 @@ const CONFIG_HTML = `<!DOCTYPE html>
       base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', thinking: 'off',
       judge: [
         { id: 'qwen-flash', label: 'Qwen-Flash · 快 · 评卷推荐' },
-        { id: 'qwen-plus', label: 'Qwen-Plus · 均衡' }
+        { id: 'qwen-plus', label: 'Qwen-Plus · 均衡' },
+        { id: 'qwen-turbo', label: 'Qwen-Turbo · 最快最便宜' }
       ],
       arbiter: [
         { id: 'qwen3-max', label: 'Qwen3-Max · 旗舰 · 仲裁推荐' },
@@ -514,22 +481,57 @@ const CONFIG_HTML = `<!DOCTYPE html>
       base: 'https://open.bigmodel.cn/api/paas/v4', thinking: 'off',
       judge: [
         { id: 'glm-4.5-flash', label: 'GLM-4.5-Flash · 低价 · 评卷推荐' },
-        { id: 'glm-4.5-air', label: 'GLM-4.5-Air · 轻量' }
+        { id: 'glm-4.5-air', label: 'GLM-4.5-Air · 轻量' },
+        { id: 'glm-4-flash', label: 'GLM-4-Flash · 免费' }
       ],
       arbiter: [
         { id: 'glm-4.6', label: 'GLM-4.6 · 旗舰 · 仲裁推荐' },
-        { id: 'glm-4.5', label: 'GLM-4.5 · 上一代旗舰' }
+        { id: 'glm-4-plus', label: 'GLM-4-Plus · 上一代旗舰' }
       ]
     },
-    xai: {
-      base: 'https://api.x.ai/v1', thinking: 'off',
+    doubao: {
+      base: 'https://ark.cn-beijing.volces.com/api/v3', thinking: 'off',
       judge: [
-        { id: 'grok-4-fast', label: 'Grok-4 Fast · 非思考 · 评卷推荐' },
-        { id: 'grok-3-mini', label: 'Grok-3 mini · 轻量' }
+        { id: 'doubao-1-5-lite-32k-250115', label: 'Doubao-1.5-lite · 快 · 评卷推荐' },
+        { id: 'doubao-1-5-pro-32k-250115', label: 'Doubao-1.5-pro · 均衡' }
       ],
       arbiter: [
-        { id: 'grok-4', label: 'Grok-4 · 旗舰 · 仲裁推荐' },
-        { id: 'grok-4-fast-reasoning', label: 'Grok-4 Fast (Reasoning) · 轻量仲裁' }
+        { id: 'doubao-1-5-thinking-pro-m-250428', label: 'Doubao-1.5 Thinking Pro · 思考 · 仲裁推荐' },
+        { id: 'doubao-1-5-pro-256k-250115', label: 'Doubao-1.5-pro (256K) · 长文本' }
+      ]
+    },
+    ernie: {
+      base: 'https://qianfan.baidubce.com/v2', thinking: 'off',
+      judge: [
+        { id: 'ernie-4.0-8k-latest', label: 'ERNIE-4.0 · 评卷推荐' },
+        { id: 'ernie-speed-8k', label: 'ERNIE-Speed · 快' },
+        { id: 'ernie-lite-8k', label: 'ERNIE-Lite · 低价' }
+      ],
+      arbiter: [
+        { id: 'ernie-4.5-turbo-128k', label: 'ERNIE-4.5 Turbo · 旗舰 · 仲裁推荐' },
+        { id: 'ernie-4.0-8k-latest', label: 'ERNIE-4.0 · 轻量仲裁' }
+      ]
+    },
+    hunyuan: {
+      base: 'https://api.hunyuan.cloud.tencent.com/v1', thinking: 'off',
+      judge: [
+        { id: 'hunyuan-lite', label: 'Hunyuan-Lite · 免费 · 评卷推荐' },
+        { id: 'hunyuan-standard', label: 'Hunyuan-Standard · 标准' }
+      ],
+      arbiter: [
+        { id: 'hunyuan-turbos-20250416', label: 'Hunyuan-TurboS · 旗舰 · 仲裁推荐' },
+        { id: 'hunyuan-t1-20250403', label: 'Hunyuan-T1 · 思考' }
+      ]
+    },
+    spark: {
+      base: 'https://spark-api-open.xf-yun.com/v1', thinking: 'off',
+      judge: [
+        { id: 'lite', label: 'Spark-Lite · 低价 · 评卷推荐' },
+        { id: 'generalv3.5', label: 'Spark-Max (V3.5) · 均衡' }
+      ],
+      arbiter: [
+        { id: '4.0Ultra', label: 'Spark-4.0 Ultra · 旗舰 · 仲裁推荐' },
+        { id: 'generalv3.5', label: 'Spark-Max · 轻量仲裁' }
       ]
     },
     minimax: {
@@ -537,8 +539,6 @@ const CONFIG_HTML = `<!DOCTYPE html>
       judge: [ { id: 'MiniMax-Text-01', label: 'MiniMax-Text-01 · 评卷档' } ],
       arbiter: [ { id: 'MiniMax-M2', label: 'MiniMax-M2 · 旗舰 · 仲裁推荐' } ]
     },
-    openrouter: { base: 'https://openrouter.ai/api/v1', thinking: 'off', judge: [], arbiter: [] },
-    agnes: { base: '', thinking: 'deepseek', judge: [], arbiter: [] },
     custom: { base: '', thinking: 'deepseek', judge: [], arbiter: [] }
   };
 
@@ -575,14 +575,12 @@ const CONFIG_HTML = `<!DOCTYPE html>
       mj.value = (p.judge[0] || {}).id || '';
       ma.value = (p.arbiter[0] || {}).id || '';
     }
-    base.placeholder = p.base || (presetValue() === 'agnes' ? 'https://<agnes-openai-兼容端点>' : 'http://127.0.0.1:11434/v1');
+    base.placeholder = p.base || 'http://127.0.0.1:11434/v1';
     var st = document.getElementById('pull-status');
-    if (presetValue() === 'openrouter') {
-      st.textContent = 'OpenRouter 聚合数百型号：填好 key 后点「拉取」。';
-    } else if (p.base) {
-      st.textContent = '已填官方端点与推荐型号；可拉取核验或手输。';
+    if (p.base) {
+      st.textContent = '已填官方端点与推荐型号；目录若滞后于官方上新，可点「从端点拉取模型列表」或直接手输。';
     } else {
-      st.textContent = '填好端点（和 key）后点「从端点拉取模型列表」。';
+      st.textContent = '填好端点地址（公网）后点「从端点拉取模型列表」；本地端点不支持拉取，型号请手输。';
     }
   }
   document.getElementById('llm_preset').addEventListener('change', function() { applyPreset(false); });

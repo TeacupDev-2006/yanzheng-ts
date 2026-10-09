@@ -64,7 +64,7 @@ describe('双页结构', () => {
     expect(html).toContain('DeepSeek')
   })
 
-  it('配置页专职：编辑器 + 12 厂商预设 + 已存值回填', async () => {
+  it('配置页专职：编辑器 + 国内厂商预设 + 已存值回填', async () => {
     const base = await startServer()
     const html = await (await fetch(base + '/config')).text()
     expect(html).toContain('id="add-panel"')
@@ -73,8 +73,12 @@ describe('双页结构', () => {
     expect(html).toContain('id="pull-models"')
     expect(html).toContain('skills-data')
     expect(html).toContain('data_consistency')
-    for (const vendor of ['DeepSeek', 'OpenAI', 'Anthropic', 'Gemini', 'Kimi', 'Qwen', 'GLM', 'xAI', 'MiniMax', 'OpenRouter', 'Agnes']) {
+    for (const vendor of ['DeepSeek', 'Kimi', 'Qwen 通义千问', 'GLM', '豆包', '文心一言', '混元', '星火', 'MiniMax', '自定义']) {
       expect(html).toContain(vendor)
+    }
+    // 国外厂商预设已移除
+    for (const foreign of ['OpenAI（GPT', 'Anthropic', 'Google Gemini', 'xAI', 'OpenRouter', 'Agnes 赛事端点']) {
+      expect(html).not.toContain(foreign)
     }
     // 已保存的编制与 LLM 设置回填（默认：deepseek 4 团）
     const panels = JSON.parse(/id="panels-data" type="application\/json">(.+?)<\/script>/s.exec(html)![1]!) as unknown[]
@@ -197,22 +201,39 @@ describe('配置保存与生效链路', () => {
 })
 
 describe('具体模型选择（/llm/models 代理 + 配置页目录）', () => {
-  it('配置页含拉取按钮、两档 datalist 与代表型号目录', async () => {
+  it('配置页含拉取按钮、两档 datalist 与国内厂商型号目录', async () => {
     const base = await startServer()
     const html = await (await fetch(base + '/config')).text()
     expect(html).toContain('id="pull-models"')
     expect(html).toContain('list="model_judge_list"')
     expect(html).toContain('list="model_arbiter_list"')
-    expect(html).toContain("'deepseek-flash'")
-    expect(html).toContain('gpt-5-mini')
-    expect(html).toContain('claude-opus-4-1')
-    expect(html).toContain('gemini-2.5-pro')
-    expect(html).toContain('kimi-k2-thinking')
-    expect(html).toContain('qwen3-max')
-    expect(html).toContain('glm-4.6')
-    expect(html).toContain('grok-4')
-    expect(html).toContain('MiniMax-M2')
-    expect(html).toContain('openrouter.ai/api/v1')
+    // 国内厂商官方兼容端点与代表型号
+    for (const marker of [
+      'https://api.deepseek.com',
+      'https://api.moonshot.cn/v1',
+      'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      'https://open.bigmodel.cn/api/paas/v4',
+      'https://ark.cn-beijing.volces.com/api/v3',
+      'https://qianfan.baidubce.com/v2',
+      'https://api.hunyuan.cloud.tencent.com/v1',
+      'https://spark-api-open.xf-yun.com/v1',
+      'https://api.minimaxi.com/v1',
+      "'deepseek-flash'",
+      'kimi-k2-thinking',
+      'qwen3-max',
+      'glm-4.6',
+      'doubao-1-5-thinking-pro-m-250428',
+      'ernie-4.5-turbo-128k',
+      'hunyuan-turbos-20250416',
+      '4.0Ultra',
+      'MiniMax-M2',
+    ]) {
+      expect(html).toContain(marker)
+    }
+    // 国外型号目录已移除
+    for (const foreign of ['gpt-5', 'claude-opus', 'gemini-2.5', 'grok-4', 'openrouter.ai']) {
+      expect(html).not.toContain(foreign)
+    }
   })
 
   it('/llm/models：scheme 校验 400；非公网端点被 SSRF 守卫拦截 502', async () => {
