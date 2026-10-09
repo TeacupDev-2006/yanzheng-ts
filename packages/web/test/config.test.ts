@@ -51,7 +51,7 @@ describe('双页结构', () => {
     const base = await startServer()
     const html = await (await fetch(base + '/')).text()
     expect(html).toContain('当前生效编制')
-    expect(html).toContain('修改 →') || expect(html).toContain('修改')
+    expect(html).toContain('修 改')
     expect(html).toContain('/config')
     expect(html).toContain('name="llm_key"')
     expect(html).toContain('本次评卷优先使用')
@@ -59,8 +59,11 @@ describe('双页结构', () => {
     // 编辑器不在投稿页
     expect(html).not.toContain('id="add-panel"')
     expect(html).not.toContain('name="rubric_json"')
-    // 默认编制摘要：4 团 13 员 总分 100
-    expect(html).toContain('4 团 13 员 · 总分 100')
+    // 默认编制摘要（指标块）：4 团 13 员 总分 100 及格 60
+    expect(html).toContain('>4</div>')
+    expect(html).toContain('>13</div>')
+    expect(html).toContain('>100</div>')
+    expect(html).toContain('及格 60')
     expect(html).toContain('DeepSeek')
   })
 
@@ -114,7 +117,10 @@ describe('配置保存与生效链路', () => {
 
     // 投稿页摘要即时更新
     const home = await (await fetch(base + '/')).text()
-    expect(home).toContain('1 团 2 员 · 总分 40')
+    expect(home).toContain('>1</div>')
+    expect(home).toContain('>2</div>')
+    expect(home).toContain('>40</div>')
+    expect(home).toContain('及格 24')
     expect(home).toContain('国际评审团')
 
     // /review 用新编制（无 key → 演示 mock）
@@ -196,7 +202,9 @@ describe('配置保存与生效链路', () => {
       body: JSON.stringify({ llm: { keep: true }, panels: null }),
     })
     const home = await (await fetch(base + '/')).text()
-    expect(home).toContain('4 团 13 员 · 总分 100')
+    expect(home).toContain('>4</div>')
+    expect(home).toContain('>13</div>')
+    expect(home).toContain('>100</div>')
   })
 })
 

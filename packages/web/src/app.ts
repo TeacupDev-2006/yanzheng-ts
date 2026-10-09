@@ -102,12 +102,17 @@ export function createApp(): Hono {
           `<td class="num">${p.maxScore}</td><td>${esc(p.judges.map((j) => j.name).join('、'))}</td></tr>`,
       )
       .join('')
+    const reviewerShort = esc(
+      presetLabel(cfg.llm.preset) + (cfg.llm.modelJudge ? ` · ${cfg.llm.modelJudge}` : ''),
+    )
     const summary = `
     <div class="cfg-card">
-      <div class="cfg-head">
-        <b>当前生效编制</b>：${cfg.panels.length} 团 ${judgeTotal} 员 · 总分 ${totalMax} ·
-        审稿人 ${esc(presetLabel(cfg.llm.preset))}${cfg.llm.modelJudge ? ` · 评卷档 ${esc(cfg.llm.modelJudge)}` : ''}${cfg.llm.modelArbiter ? ` · 仲裁档 ${esc(cfg.llm.modelArbiter)}` : ''}
-        <a href="/config">修改 →</a>
+      <div class="cfg-top"><b>当前生效编制</b><a class="cfg-edit" href="/config">修 改</a></div>
+      <div class="stats">
+        <div class="stat"><div class="n">${cfg.panels.length}</div><div class="t">评审团</div><div class="s">&nbsp;</div></div>
+        <div class="stat"><div class="n">${judgeTotal}</div><div class="t">评卷员</div><div class="s">&nbsp;</div></div>
+        <div class="stat"><div class="n red">${totalMax}</div><div class="t">总分制</div><div class="s">及格 ${Math.round(totalMax * 0.6)}</div></div>
+        <div class="stat"><div class="n" style="font-size:14px;padding-top:5px">${reviewerShort}</div><div class="t">审稿人</div><div class="s">${cfg.llm.apiKey ? 'key 已配置' : '演示模式'}</div></div>
       </div>
       <details><summary>展开评审团明细</summary>
         <table><thead><tr><th>评审团</th><th>员数</th><th>满分</th><th>评卷员</th></tr></thead>
@@ -208,7 +213,8 @@ const INDEX_HTML = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>研证 · 评卷纪要</title>
 <style>
-  :root { --paper:#FAF6EE; --ink:#1c1a17; --red:#A63D2F; --hair:#D9D2C2; --dim:#6E675B; --wash:#F3EDE0; }
+  :root { --paper:#FAF6EE; --ink:#1c1a17; --red:#A63D2F; --hair:#D9D2C2; --dim:#6E675B; --wash:#F3EDE0;
+          --ok:#1a7a3a; }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
   body { margin:0; background:var(--paper); color:var(--ink);
@@ -229,41 +235,78 @@ const INDEX_HTML = `<!DOCTYPE html>
   .double { border-top:3px solid var(--ink); border-bottom:1px solid var(--ink);
            height:5px; margin: 2px 0 22px; }
   .lede { text-align:center; font-style:italic; color:var(--dim); font-size:15px;
-         margin:0 0 26px; }
+         margin:0 0 22px; }
   .badge { display:inline-block; font-size:12px; letter-spacing:.12em; color:var(--red);
-          border:1px solid var(--red); padding:2px 12px; margin-bottom:24px; }
-  .badge.ink { color:var(--ink); border-color:var(--ink); }
-  .cfg-card { border:1px solid var(--hair); background:#FFFDF8; padding:12px 14px; margin-bottom:24px; font-size:13.5px; }
-  .cfg-head a { color:var(--red); margin-left:8px; }
-  .cfg-card table { width:100%; border-collapse:collapse; font-size:12.5px; margin-top:10px; }
+          border:1px solid var(--red); padding:3px 14px; margin-bottom:22px; }
+  .badge.ink { color:#fff; background:var(--ink); border-color:var(--ink); }
+  /* 配置摘要：指标块 */
+  .cfg-card { border:1px solid var(--hair); background:#FFFDF8; padding:14px 14px 12px; margin-bottom:26px; }
+  .cfg-top { display:flex; align-items:center; justify-content:space-between; gap:8px;
+            border-bottom:1px solid var(--hair); padding-bottom:8px; margin-bottom:12px; }
+  .cfg-top b { font-size:13px; letter-spacing:.2em; }
+  .cfg-edit { font-size:12.5px; color:var(--red); border:1px solid var(--red);
+             padding:2px 10px; text-decoration:none; white-space:nowrap; }
+  .cfg-edit:hover { background:var(--red); color:#fff; }
+  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
+  @media (max-width:520px) { .stats { grid-template-columns:repeat(2,1fr); } }
+  .stat { text-align:center; background:var(--wash); padding:8px 4px 6px; }
+  .stat .n { font-size:22px; font-weight:900; line-height:1.2; font-variant-numeric:tabular-nums; }
+  .stat .n.red { color:var(--red); }
+  .stat .t { font-size:11px; color:var(--dim); letter-spacing:.14em; }
+  .stat .s { font-size:11px; color:var(--dim); overflow:hidden; text-overflow:ellipsis;
+            white-space:nowrap; }
+  .cfg-card details { margin-top:10px; }
+  .cfg-card summary { cursor:pointer; font-size:12.5px; color:var(--dim); }
+  .cfg-card table { width:100%; border-collapse:collapse; font-size:12.5px; margin-top:8px; }
   .cfg-card th, .cfg-card td { border-bottom:1px solid var(--hair); padding:5px 6px; text-align:left; }
   .cfg-card th { color:var(--dim); font-weight:700; background:var(--wash); }
-  td.num { text-align:right; white-space:nowrap; }
+  .cfg-card tr:nth-child(even) td { background:#FBF7EE; }
+  td.num { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
   .section-label { text-align:center; font-size:12px; letter-spacing:.4em; color:var(--red);
                   margin: 26px 0 14px; }
   form { border-top:1px solid var(--hair); padding-top:8px; }
-  .drop { border:1px solid var(--hair); background:#FFFDF8; padding:30px 16px;
-         text-align:center; color:var(--dim); font-size:14px; margin-bottom:20px; }
+  /* 上传区 */
+  .drop { border:1.5px dashed var(--hair); background:#FFFDF8; padding:26px 16px 20px;
+         text-align:center; color:var(--dim); font-size:14px; margin-bottom:20px;
+         transition:border-color .15s, background .15s; }
   .drop b { color:var(--ink); }
-  input[type=file] { width:100%; margin-top:10px; font-family:inherit; }
+  .drop .fmt { font-size:12px; margin-top:2px; }
+  .drop.drag { border-color:var(--red); background:#F7EDE4; }
+  .drop input[type=file] { width:100%; margin-top:12px; font-family:inherit; }
+  .file-chip { display:none; margin:10px auto 0; max-width:90%;
+              border:1px solid var(--hair); background:var(--wash); padding:3px 10px;
+              font-size:12.5px; color:var(--ink); }
+  .file-chip.show { display:inline-block; }
   label { display:block; font-size:13px; letter-spacing:.18em; color:var(--dim);
          margin:18px 0 6px; }
+  .quick { display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
+  .quick button { width:auto; margin:0; padding:3px 12px; background:transparent; color:var(--dim);
+          border:1px solid var(--hair); font-size:12px; letter-spacing:.08em; text-indent:0; }
+  .quick button:hover { border-color:var(--red); color:var(--red); background:transparent; }
+  .quick button.on { background:var(--ink); color:var(--paper); border-color:var(--ink); }
   input[type=number], input[type=password] { width:100%; padding:8px 2px; border:0;
         border-bottom:1px solid var(--ink); background:transparent; font:inherit;
         font-size:16px; border-radius:0; }
   input:focus { outline:none; border-bottom-color:var(--red); }
+  details.adv { margin-top:22px; border:1px solid var(--hair); background:#FFFDF8; }
+  details.adv summary { cursor:pointer; padding:10px 12px; font-size:13px; letter-spacing:.14em;
+               color:var(--dim); list-style:none; }
+  details.adv summary::before { content:"▸ "; color:var(--red); }
+  details.adv[open] summary::before { content:"▾ "; }
+  details.adv .inner { padding:0 12px 14px; }
   .check { display:flex; align-items:baseline; gap:8px; margin-top:18px; font-size:14px; }
   .check input { width:auto; accent-color: var(--red); }
-  button { width:100%; margin-top:26px; padding:14px; background:var(--ink); color:var(--paper);
+  button.go { width:100%; margin-top:26px; padding:14px; background:var(--ink); color:var(--paper);
           border:0; font:inherit; font-size:17px; letter-spacing:.5em; text-indent:.5em;
-          cursor:pointer; }
-  button:hover { background:var(--red); }
-  button:disabled { opacity:.55; cursor:wait; }
+          cursor:pointer; transition:background .15s; }
+  button.go:hover { background:var(--red); }
+  button.go:disabled { opacity:.55; cursor:wait; }
   .note { font-size:12.5px; color:var(--dim); margin-top:16px; text-align:center;
          font-style:italic; }
   .rule { border:0; border-top:1px solid var(--hair); margin:30px 0 0; }
   .colophon { text-align:center; font-size:11.5px; color:var(--dim); margin-top:14px;
              letter-spacing:.1em; }
+  .colophon a { color:var(--red); }
   .stamp { display:inline-block; margin-top:18px; border:2.5px solid var(--red); color:var(--red);
           font-size:30px; font-weight:900; padding:6px 14px; letter-spacing:.2em;
           transform:rotate(-7deg); border-radius:4px; opacity:.85; }
@@ -279,17 +322,31 @@ const INDEX_HTML = `<!DOCTYPE html>
   <!--CFG_SUMMARY-->
 
   <div class="section-label">投 稿</div>
-  <form action="/review" method="post" enctype="multipart/form-data">
-    <div class="drop">本刊受理 <b>.pdf / .txt / .md</b> 稿件，篇幅以 20MB 为限
-      <input type="file" name="file" accept=".pdf,.txt,.md" required>
+  <form id="cfg" action="/review" method="post" enctype="multipart/form-data">
+    <div class="drop" id="drop">
+      <div style="font-size:26px;line-height:1">⌘</div>
+      <div style="margin-top:6px">拖拽稿件到此，或点击下方选择文件</div>
+      <div class="fmt">本刊受理 <b>.pdf / .txt / .md</b>，篇幅以 20MB 为限</div>
+      <input type="file" name="file" id="file" accept=".pdf,.txt,.md" required>
+      <span class="file-chip" id="file-chip"></span>
     </div>
     <label>门 检 最 低 字 数</label>
-    <input type="number" name="min_words" value="10000" min="0">
-    <label style="margin-top:22px">临 时 API KEY（可选 · 本次评卷优先使用，不改已保存配置）</label>
-    <input type="password" name="llm_key" autocomplete="off" placeholder="留空 = 使用配置页保存的审稿人">
-    <div class="check"><input type="checkbox" name="online" value="1" id="online">
-      <label for="online" style="margin:0;letter-spacing:.05em">启用在线核查（Crossref 验引用 · OpenAlex 检文献）</label></div>
-    <button type="submit" id="go">送 申 评 卷</button>
+    <input type="number" name="min_words" id="min_words" value="10000" min="0">
+    <div class="quick">
+      <button type="button" data-w="200">快速试投 · 200</button>
+      <button type="button" data-w="5000">课程论文 · 5000</button>
+      <button type="button" data-w="10000" class="on">毕业论文 · 10000</button>
+    </div>
+    <details class="adv">
+      <summary>高级选项 · 临时更换审稿人 / 在线核查</summary>
+      <div class="inner">
+        <label style="margin-top:10px">临 时 API KEY（仅本次评卷优先使用，不改已保存配置）</label>
+        <input type="password" name="llm_key" autocomplete="off" placeholder="留空 = 使用配置页保存的审稿人">
+        <div class="check"><input type="checkbox" name="online" value="1" id="online">
+          <label for="online" style="margin:0;letter-spacing:.05em">启用在线核查（Crossref 验引用 · OpenAlex 检文献）</label></div>
+      </div>
+    </details>
+    <button type="submit" class="go" id="go">送 申 评 卷</button>
     <p class="note">评卷时长取决于编制规模与模型档位：评卷员并行独立打分，其后两级仲裁复核。请勿离席。</p>
   </form>
 
@@ -299,7 +356,44 @@ const INDEX_HTML = `<!DOCTYPE html>
   <div style="text-align:center"><span class="stamp">阅</span></div>
 </main>
 <script>
-  document.querySelector('form').addEventListener('submit', function() {
+  // 字数快捷档
+  var mw = document.getElementById('min_words');
+  document.querySelectorAll('.quick button').forEach(function(b) {
+    b.addEventListener('click', function() {
+      mw.value = b.getAttribute('data-w');
+      document.querySelectorAll('.quick button').forEach(function(x) { x.classList.remove('on'); });
+      b.classList.add('on');
+    });
+  });
+  mw.addEventListener('input', function() {
+    document.querySelectorAll('.quick button').forEach(function(x) {
+      x.classList.toggle('on', x.getAttribute('data-w') === mw.value);
+    });
+  });
+  // 上传：文件名回显 + 拖拽高亮
+  var file = document.getElementById('file'), chip = document.getElementById('file-chip'), drop = document.getElementById('drop');
+  file.addEventListener('change', function() {
+    var f = file.files[0];
+    if (f) {
+      chip.textContent = '已选：' + f.name + '（' + (f.size / 1024).toFixed(0) + ' KB）';
+      chip.classList.add('show');
+    } else {
+      chip.classList.remove('show');
+    }
+  });
+  ['dragenter', 'dragover'].forEach(function(ev) {
+    drop.addEventListener(ev, function(e) { e.preventDefault(); drop.classList.add('drag'); });
+  });
+  ['dragleave', 'drop'].forEach(function(ev) {
+    drop.addEventListener(ev, function(e) { e.preventDefault(); drop.classList.remove('drag'); });
+  });
+  drop.addEventListener('drop', function(e) {
+    if (e.dataTransfer.files && e.dataTransfer.files.length) {
+      file.files = e.dataTransfer.files;
+      file.dispatchEvent(new Event('change'));
+    }
+  });
+  document.getElementById('cfg').addEventListener('submit', function() {
     var b = document.getElementById('go');
     b.disabled = true; b.textContent = '评 卷 中 · 请 候';
   });
@@ -366,11 +460,35 @@ const CONFIG_HTML = `<!DOCTYPE html>
   .save-bar button { padding:12px 26px; font-size:15px; letter-spacing:.3em; }
   #save-status { font-size:13px; }
   #save-status.ok { color:#1a7a3a; }
+  #save-status.ok a { color:#1a7a3a; }
   #save-status.err { color:var(--red); }
   .back { text-align:center; margin-top:8px; font-size:13px; }
   .back a { color:var(--red); }
+  .home-link { position:absolute; top:20px; right:18px; font-size:12.5px; color:var(--ink);
+              border:1px solid var(--hair); padding:3px 10px; text-decoration:none; }
+  .home-link:hover { border-color:var(--red); color:var(--red); }
+  main { position:relative; }
+  /* 型号速选 chips */
+  .mchips { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+  .mchips button { padding:2px 10px; background:transparent; color:var(--dim);
+          border:1px solid var(--hair); font-size:12px; letter-spacing:.02em; text-indent:0; }
+  .mchips button:hover { border-color:var(--red); color:var(--red); background:transparent; }
+  .mchips .hd { font-size:11px; color:var(--dim); letter-spacing:.14em; align-self:center;
+               border:0; padding:0; margin-right:2px; cursor:default; }
+  .mchips .hd:hover { color:var(--dim); }
+  /* 技能 chips 选中态 */
+  .skills label { border:1px solid var(--hair); padding:2px 10px; cursor:pointer;
+                 transition:border-color .1s, background .1s; }
+  .skills label.on { border-color:var(--red); color:var(--red); background:#F7EDE4; }
+  .skills label.on::after { content:" ✓"; }
+  /* 团卡片头部 */
+  .panel-card { border-left:3px solid var(--red); }
+  .panel-head .idx { background:var(--wash); padding:2px 8px; }
+  .judge-head .jnum { font-size:11px; color:var(--dim); white-space:nowrap; }
+  textarea.persona { min-height:52px; overflow:hidden; }
 </style></head><body>
 <main>
+  <a class="home-link" href="/">← 返回投稿</a>
   <div class="dateline">评卷委员会配置 · 保存后投稿页即时生效</div>
   <div class="masthead"><h1>研<span class="dot">·</span>证</h1></div>
   <div class="eng">Committee Configuration</div>
@@ -414,6 +532,8 @@ const CONFIG_HTML = `<!DOCTYPE html>
     <button type="button" class="ghost" id="pull-models">从端点拉取模型列表</button>
     <span id="pull-status" class="subnote" style="align-self:center"></span>
   </div>
+  <div class="mchips" id="judge-chips"></div>
+  <div class="mchips" id="arbiter-chips" style="margin-bottom:4px"></div>
   <p class="subnote">评卷员默认走「评卷档」（非思考），团长与总仲裁走「仲裁档」（思考模式）。DeepSeek 的私有 thinking 参数按厂商自动适配，不会发给其他家端点。key 保存在本机服务端（data/rubric.json，不入 git）。</p>
 
   <div class="section-label">评 审 团 编 制</div>
@@ -557,10 +677,36 @@ const CONFIG_HTML = `<!DOCTYPE html>
       dl.appendChild(o);
     });
   }
+  // 型号速选 chips：点击直接填入对应档位输入框（比 datalist 在移动端更直观）
+  function renderChips(containerId, inputId, models) {
+    var box = document.getElementById(containerId);
+    box.innerHTML = '';
+    if (!models.length) { box.style.display = 'none'; return; }
+    box.style.display = 'flex';
+    var hd = document.createElement('span');
+    hd.className = 'hd';
+    hd.textContent = inputId === 'model_judge' ? '评卷档速选：' : '仲裁档速选：';
+    box.appendChild(hd);
+    models.slice(0, 4).forEach(function(m) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = m.id;
+      if (m.label) b.title = m.label;
+      b.addEventListener('click', function() {
+        document.getElementById(inputId).value = m.id;
+      });
+      box.appendChild(b);
+    });
+  }
+  function renderAllChips(models) {
+    renderChips('judge-chips', 'model_judge', models);
+    renderChips('arbiter-chips', 'model_arbiter', models);
+  }
   function applyCatalog(name) {
     var p = PRESETS[name] || { judge: [], arbiter: [], thinking: 'deepseek' };
     fillDatalist('model_judge_list', p.judge);
     fillDatalist('model_arbiter_list', p.arbiter);
+    renderAllChips(p.judge);
   }
   function presetValue() { return document.getElementById('llm_preset').value; }
 
@@ -600,6 +746,7 @@ const CONFIG_HTML = `<!DOCTYPE html>
       var ids = r.d.models || [];
       fillDatalist('model_judge_list', ids.map(function(x) { return { id: x }; }));
       fillDatalist('model_arbiter_list', ids.map(function(x) { return { id: x }; }));
+      renderAllChips(ids.map(function(x) { return { id: x }; }));
       st.textContent = '已拉取 ' + ids.length + ' 个型号（两档共用该列表）。';
     }).catch(function(e) { st.textContent = '拉取失败：' + e; });
   });
@@ -612,9 +759,11 @@ const CONFIG_HTML = `<!DOCTYPE html>
       var lb = el('label');
       var cb = document.createElement('input');
       cb.type = 'checkbox'; cb.checked = judge.skills.indexOf(s.id) !== -1;
+      lb.classList.toggle('on', cb.checked);
       cb.addEventListener('change', function() {
         if (cb.checked) { if (judge.skills.indexOf(s.id) === -1) judge.skills.push(s.id); }
         else { judge.skills = judge.skills.filter(function(x) { return x !== s.id; }); }
+        lb.classList.toggle('on', cb.checked);
       });
       lb.appendChild(cb);
       lb.appendChild(document.createTextNode(s.label));
@@ -646,7 +795,11 @@ const CONFIG_HTML = `<!DOCTYPE html>
     card.appendChild(head);
     var persona = document.createElement('textarea'); persona.className = 'judge-persona';
     persona.value = judge.persona || ''; persona.placeholder = '评卷视角（persona）：该评卷员只负责什么？重点看哪里？';
-    persona.addEventListener('input', function() { judge.persona = persona.value; });
+    persona.addEventListener('input', function() {
+      judge.persona = persona.value;
+      persona.style.height = 'auto';
+      persona.style.height = Math.min(persona.scrollHeight, 200) + 'px';
+    });
     card.appendChild(persona);
     card.appendChild(skillBoxes(judge));
     return card;
@@ -706,6 +859,7 @@ const CONFIG_HTML = `<!DOCTYPE html>
   document.getElementById('save').addEventListener('click', function() {
     var st = document.getElementById('save-status');
     var keyInput = document.getElementById('llm_key').value;
+    if (keyInput === '清空' && !confirm('确定要清除已保存的 API KEY 吗？清除后将回到演示模式。')) return;
     var body = {
       llm: {
         preset: presetValue(),
@@ -731,7 +885,7 @@ const CONFIG_HTML = `<!DOCTYPE html>
         btn.disabled = false;
         if (r.ok) {
           st.className = 'ok';
-          st.textContent = '已保存：' + r.d.panels + ' 团 ' + r.d.judges + ' 员 —— 投稿页即时生效';
+          st.innerHTML = '已保存：' + r.d.panels + ' 团 ' + r.d.judges + ' 员 —— 投稿页即时生效 · <a href="/">去投稿 →</a>';
         } else {
           st.className = 'err';
           st.textContent = '保存失败：' + (r.d.error || JSON.stringify(r.d));
