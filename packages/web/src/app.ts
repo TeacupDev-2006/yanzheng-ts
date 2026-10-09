@@ -1,16 +1,15 @@
 /**
- * 研证 Web 形态：上传论文 → 评卷 → 单文件 HTML 报告（Hono，对照 yanzheng/web/app.py 扩展）。
+ * 研证 Web 形态（Hono）。
  *
- * 相比原版的增强（评卷委员会配置器）：
- * - 自选 AI：预设/自定义 OpenAI 兼容端点 + 用户自己的 API key + 评卷/仲裁双档模型名
- * - 自定义评审团编制：可增删评审团、增删评卷员、编辑名称/视角（persona）、
- *   每员可勾选确定性 skill、选择模型档（flash=评卷档 / pro=仲裁档）
- * - 不填 key 自动进入演示模式（确定性 mock）
+ * 页面职责分离：
+ *   GET  /config   评卷委员会配置页（AI 设置 + 评审团编制编辑器，保存到服务端 data/rubric.json）
+ *   GET  /         投稿页（轻量：上传论文即送审；展示当前生效配置摘要 + 可选临时 Key 覆盖）
+ *   POST /review   评卷（配置取服务端保存值；表单里的临时 Key 优先）
+ *   POST /api/config   保存配置（校验经 normalizePanels；apiKey 未传 = 保留原值）
+ *   POST /llm/models   拉取公网端点模型清单（SSRF 守卫）
+ *   GET  /health   健康检查
  *
- * 端点：
- *   GET  /        投稿页 + 评卷委员会配置器（移动端适配）
- *   POST /review  multipart 文件 + 选项 → 评卷 → 直接返回 HTML 报告
- *   GET  /health  健康检查
+ * 无任何 key 时自动进入演示模式（确定性 mock，页面明确标注）。
  */
 
 import { Hono } from 'hono'
@@ -24,6 +23,7 @@ import {
   AVAILABLE_SKILLS,
   type PanelSpec,
 } from '@yanzheng/core'
+import { loadConfig, saveConfig } from './config-store.js'
 
 export const ALLOW_EXT = ['.pdf', '.txt', '.md']
 export const MAX_UPLOAD = 20 * 1024 * 1024
@@ -43,12 +43,12 @@ export function createApp(): Hono {
     }),
   )
 
-  /** 拉取用户自备端点的模型清单（与评卷调用同一端点路径，scheme 校验一致）。 */
+  /** 拉取用户自备公网端点的模型清单（SSRF 守卫；本地端点不提供拉取）。 */
   app.post('/llm/models', async (c) => {
     const body = (await c.req.json().catch(() => null)) as { url?: string; key?: string } | null
     const url = String(body?.url ?? '').trim()
     if (!url) return c.json({ error: '缺少端点地址' }, 400)
-    if (!/^https?:\/\//.test(url.trim())) {
+    if (!/^https?:\/\//.test(url)) {
       return c.json({ error: '端点仅允许 http/https' }, 400)
     }
     try {
@@ -59,19 +59,66 @@ export function createApp(): Hono {
     }
   })
 
-  app.get('/', (c) => {
-    const hasKey = Boolean(process.env.DEEPSEEK_API_KEY)
-    const demoBadge = hasKey
-      ? '<span class="badge ink">真实评卷 · 评卷团已就位</span>'
-      : '<span class="badge">演示模式 · 未配置审稿人（结果为确定性 mock）</span>'
+  /** 保存配置。llm.apiKey 未出现在请求体里 = 保留已存值（避免页面掩码回写清空）。 */
+  app.post('/api/config', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null
+    if (!body) return c.json({ error: '请求体不是合法 JSON' }, 400)
+    try {
+      const saved = await saveConfig(body)
+      return c.json({ ok: true, panels: saved.panels.length, judges: saved.panels.reduce((a, p) => a + p.judges.length, 0) })
+    } catch (exc) {
+      return c.json({ error: exc instanceof Error ? exc.message : String(exc) }, 400)
+    }
+  })
+
+  /** 配置页：评审团编制编辑器 + AI 设置（专职页面）。 */
+  app.get('/config', async (c) => {
+    const cfg = await loadConfig()
     const safe = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c')
     return c.html(
-      INDEX_HTML.replace('<!--BADGE-->', () => demoBadge)
-        .replaceAll('__SKILLS__', () => safe(AVAILABLE_SKILLS))
-        .replaceAll('__RUBRIC__', () => safe(ALL_PANELS))
+      CONFIG_HTML.replace('__SKILLS__', () => safe(AVAILABLE_SKILLS))
+        .replace('__PANELS__', () => safe(cfg.panels))
+        .replace('__LLM__', () => safe({ ...cfg.llm, apiKey: cfg.llm.apiKey ? '已保存（留空即保持不变）' : '' }))
         .replaceAll('__DS_BASE__', () => DEEPSEEK_BASE)
         .replaceAll('__DS_JUDGE__', () => DEEPSEEK_JUDGE_MODEL)
         .replaceAll('__DS_ARBITER__', () => DEEPSEEK_ARBITER_MODEL),
+    )
+  })
+
+  /** 投稿页（轻量）：当前配置摘要 + 上传送审 + 可选临时 Key 覆盖。 */
+  app.get('/', async (c) => {
+    const cfg = await loadConfig()
+    const hasEnvKey = Boolean(process.env.DEEPSEEK_API_KEY)
+    const effectiveKey = cfg.llm.apiKey || (hasEnvKey ? 'env' : null)
+    const demoBadge = effectiveKey
+      ? '<span class="badge ink">真实评卷 · 评卷团已就位</span>'
+      : '<span class="badge">演示模式 · 未配置审稿人（结果为确定性 mock）</span>'
+    const judgeTotal = cfg.panels.reduce((a, p) => a + p.judges.length, 0)
+    const totalMax = cfg.panels.reduce((a, p) => a + p.maxScore, 0)
+    const summaryRows = cfg.panels
+      .map(
+        (p) =>
+          `<tr><td>${esc(p.name)}</td><td class="num">${p.judges.length}</td>` +
+          `<td class="num">${p.maxScore}</td><td>${esc(p.judges.map((j) => j.name).join('、'))}</td></tr>`,
+      )
+      .join('')
+    const summary = `
+    <div class="cfg-card">
+      <div class="cfg-head">
+        <b>当前生效编制</b>：${cfg.panels.length} 团 ${judgeTotal} 员 · 总分 ${totalMax} ·
+        审稿人 ${esc(presetLabel(cfg.llm.preset))}${cfg.llm.modelJudge ? ` · 评卷档 ${esc(cfg.llm.modelJudge)}` : ''}${cfg.llm.modelArbiter ? ` · 仲裁档 ${esc(cfg.llm.modelArbiter)}` : ''}
+        <a href="/config">修改 →</a>
+      </div>
+      <details><summary>展开评审团明细</summary>
+        <table><thead><tr><th>评审团</th><th>员数</th><th>满分</th><th>评卷员</th></tr></thead>
+        <tbody>${summaryRows}</tbody></table>
+      </details>
+    </div>`
+    return c.html(
+      INDEX_HTML.replace('<!--BADGE-->', () => demoBadge)
+        .replace('<!--CFG_SUMMARY-->', () => summary)
+        .replace('__DS_JUDGE__', () => DEEPSEEK_JUDGE_MODEL)
+        .replace('__DS_ARBITER__', () => DEEPSEEK_ARBITER_MODEL),
     )
   })
 
@@ -92,24 +139,10 @@ export function createApp(): Hono {
     const minWords = Number.parseInt(String(form.min_words ?? '10000'), 10) || 10000
     const online = String(form.online ?? '') === '1'
 
-    // 自定义评审团编制（可选；缺省为标准 4 团 13 员）
-    let panels: PanelSpec[] | undefined
-    const rubricRaw = String(form.rubric_json ?? '').trim()
-    if (rubricRaw) {
-      try {
-        panels = normalizePanels(JSON.parse(rubricRaw))
-      } catch (exc) {
-        return c.text(`评审团配置无效：${exc instanceof Error ? exc.message : String(exc)}`, 400)
-      }
-    }
-
-    // 自选 AI（可选；key 留空 = 演示模式确定性 mock）
-    const apiKey = String(form.llm_key ?? '').trim() || null
-    const baseUrl = String(form.llm_base_url ?? '').trim() || undefined
-    const modelFlash = String(form.model_judge ?? '').trim() || undefined
-    const modelPro = String(form.model_arbiter ?? '').trim() || undefined
-    // 思考开关风格由预设决定（第三方端点不携带 DeepSeek 私有 thinking 字段）
-    const thinkingStyle = String(form.llm_thinking ?? '') === 'off' ? ('off' as const) : ('deepseek' as const)
+    // 配置：服务端保存值为基底；表单临时 Key 优先（不改已存配置）
+    const cfg = await loadConfig()
+    const tempKey = String(form.llm_key ?? '').trim()
+    const apiKey = tempKey || cfg.llm.apiKey || null
 
     const data = Buffer.from(await file.arrayBuffer())
     const text = ext === '.pdf' ? await pdfTextOf(data) : data.toString('utf-8')
@@ -123,11 +156,11 @@ export function createApp(): Hono {
         apiKey,
         mockFn: apiKey ? null : demoMockLLM,
         minWords,
-        panels,
-        baseUrl,
-        modelFlash,
-        modelPro,
-        thinkingStyle,
+        panels: cfg.panels,
+        baseUrl: cfg.llm.baseUrl || undefined,
+        modelFlash: cfg.llm.modelJudge || undefined,
+        modelPro: cfg.llm.modelArbiter || undefined,
+        thinkingStyle: cfg.llm.thinkingStyle,
       })
       return c.html(renderHtml(report))
     } catch (exc) {
@@ -138,13 +171,39 @@ export function createApp(): Hono {
   return app
 }
 
-/** pdf 上传时内存抽取文本（unpdf）。 */
+function presetLabel(preset: string): string {
+  const names: Record<string, string> = {
+    deepseek: 'DeepSeek',
+    openai: 'OpenAI',
+    anthropic: 'Anthropic',
+    gemini: 'Google Gemini',
+    kimi: 'Kimi',
+    qwen: 'Qwen',
+    glm: 'GLM',
+    xai: 'xAI',
+    minimax: 'MiniMax',
+    openrouter: 'OpenRouter',
+    agnes: 'Agnes 赛事端点',
+    custom: '自定义端点',
+  }
+  return names[preset] ?? preset
+}
+
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+/** pdf 内存抽取文本（unpdf）。 */
 async function pdfTextOf(data: Buffer): Promise<string> {
   const { extractText, getDocumentProxy } = await import('unpdf')
   const pdf = await getDocumentProxy(new Uint8Array(data))
   const { text } = await extractText(pdf, { mergePages: true })
   return (Array.isArray(text) ? text.join('\n') : text) ?? ''
 }
+
+// ---------------------------------------------------------------------------
+// 投稿页（轻量）
+// ---------------------------------------------------------------------------
 
 const INDEX_HTML = `<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
@@ -161,7 +220,7 @@ const INDEX_HTML = `<!DOCTYPE html>
           writing-mode:vertical-rl; letter-spacing:.5em; font-size:12px; color:var(--dim);
           border-left:1px solid var(--hair); padding-left:10px; user-select:none; }
   @media (max-width: 900px) { .spine { display:none; } }
-  main { max-width: 680px; margin: 0 auto; padding: 28px 18px 60px; }
+  main { max-width: 640px; margin: 0 auto; padding: 28px 18px 60px; }
   .dateline { text-align:center; font-size:12px; letter-spacing:.28em; color:var(--dim);
              border-bottom:1px solid var(--ink); padding-bottom:8px; }
   .masthead { text-align:center; padding: 26px 0 10px; }
@@ -176,6 +235,12 @@ const INDEX_HTML = `<!DOCTYPE html>
   .badge { display:inline-block; font-size:12px; letter-spacing:.12em; color:var(--red);
           border:1px solid var(--red); padding:2px 12px; margin-bottom:24px; }
   .badge.ink { color:var(--ink); border-color:var(--ink); }
+  .cfg-card { border:1px solid var(--hair); background:#FFFDF8; padding:12px 14px; margin-bottom:24px; font-size:13.5px; }
+  .cfg-head a { color:var(--red); margin-left:8px; }
+  .cfg-card table { width:100%; border-collapse:collapse; font-size:12.5px; margin-top:10px; }
+  .cfg-card th, .cfg-card td { border-bottom:1px solid var(--hair); padding:5px 6px; text-align:left; }
+  .cfg-card th { color:var(--dim); font-weight:700; background:var(--wash); }
+  td.num { text-align:right; white-space:nowrap; }
   .section-label { text-align:center; font-size:12px; letter-spacing:.4em; color:var(--red);
                   margin: 26px 0 14px; }
   form { border-top:1px solid var(--hair); padding-top:8px; }
@@ -185,18 +250,16 @@ const INDEX_HTML = `<!DOCTYPE html>
   input[type=file] { width:100%; margin-top:10px; font-family:inherit; }
   label { display:block; font-size:13px; letter-spacing:.18em; color:var(--dim);
          margin:18px 0 6px; }
-  input[type=number], input[type=text], input[type=password], input[type=url], textarea, select {
-        width:100%; padding:8px 6px; border:1px solid var(--hair); background:#FFFDF8;
-        font:inherit; font-size:14px; border-radius:0; }
-  input:focus, textarea:focus, select:focus { outline:none; border-color:var(--red); }
-  textarea { resize:vertical; }
+  input[type=number], input[type=password] { width:100%; padding:8px 2px; border:0;
+        border-bottom:1px solid var(--ink); background:transparent; font:inherit;
+        font-size:16px; border-radius:0; }
+  input:focus { outline:none; border-bottom-color:var(--red); }
   .check { display:flex; align-items:baseline; gap:8px; margin-top:18px; font-size:14px; }
   .check input { width:auto; accent-color: var(--red); }
-  button { padding:8px 14px; background:var(--ink); color:var(--paper);
-          border:0; font:inherit; font-size:13px; letter-spacing:.2em; cursor:pointer; }
+  button { width:100%; margin-top:26px; padding:14px; background:var(--ink); color:var(--paper);
+          border:0; font:inherit; font-size:17px; letter-spacing:.5em; text-indent:.5em;
+          cursor:pointer; }
   button:hover { background:var(--red); }
-  button.ghost { background:transparent; color:var(--ink); border:1px solid var(--hair); }
-  button.ghost:hover { border-color:var(--red); color:var(--red); background:transparent; }
   button:disabled { opacity:.55; cursor:wait; }
   .note { font-size:12.5px; color:var(--dim); margin-top:16px; text-align:center;
          font-style:italic; }
@@ -206,18 +269,92 @@ const INDEX_HTML = `<!DOCTYPE html>
   .stamp { display:inline-block; margin-top:18px; border:2.5px solid var(--red); color:var(--red);
           font-size:30px; font-weight:900; padding:6px 14px; letter-spacing:.2em;
           transform:rotate(-7deg); border-radius:4px; opacity:.85; }
-  /* ---- 配置器 ---- */
+</style></head><body>
+<div class="spine">毕业论文评卷纪要 · 全一册</div>
+<main>
+  <div class="dateline">第 一 期 · 二〇二六年十月 · 毕业论文评卷特辑</div>
+  <div class="masthead"><h1>研<span class="dot">·</span>证</h1></div>
+  <div class="eng">Yanzheng — The Thesis Review</div>
+  <div class="double"></div>
+  <p class="lede">各团各员，各凭证据独立执笔；分差则仲裁，作假者否决。——本刊评卷章程</p>
+  <div style="text-align:center"><!--BADGE--></div>
+  <!--CFG_SUMMARY-->
+
+  <div class="section-label">投 稿</div>
+  <form action="/review" method="post" enctype="multipart/form-data">
+    <div class="drop">本刊受理 <b>.pdf / .txt / .md</b> 稿件，篇幅以 20MB 为限
+      <input type="file" name="file" accept=".pdf,.txt,.md" required>
+    </div>
+    <label>门 检 最 低 字 数</label>
+    <input type="number" name="min_words" value="10000" min="0">
+    <label style="margin-top:22px">临 时 API KEY（可选 · 本次评卷优先使用，不改已保存配置）</label>
+    <input type="password" name="llm_key" autocomplete="off" placeholder="留空 = 使用配置页保存的审稿人">
+    <div class="check"><input type="checkbox" name="online" value="1" id="online">
+      <label for="online" style="margin:0;letter-spacing:.05em">启用在线核查（Crossref 验引用 · OpenAlex 检文献）</label></div>
+    <button type="submit" id="go">送 申 评 卷</button>
+    <p class="note">评卷时长取决于编制规模与模型档位：评卷员并行独立打分，其后两级仲裁复核。请勿离席。</p>
+  </form>
+
+  <hr class="rule">
+  <div class="colophon">评审团编制、审稿人（AI）与型号，请移步<a href="/config">评卷委员会配置页</a><br>
+  查重不过者打回 · 作假成立者一票否决</div>
+  <div style="text-align:center"><span class="stamp">阅</span></div>
+</main>
+<script>
+  document.querySelector('form').addEventListener('submit', function() {
+    var b = document.getElementById('go');
+    b.disabled = true; b.textContent = '评 卷 中 · 请 候';
+  });
+</script>
+</body></html>`
+
+// ---------------------------------------------------------------------------
+// 配置页（专职）
+// ---------------------------------------------------------------------------
+
+const CONFIG_HTML = `<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>评卷委员会配置 · 研证</title>
+<style>
+  :root { --paper:#FAF6EE; --ink:#1c1a17; --red:#A63D2F; --hair:#D9D2C2; --dim:#6E675B; --wash:#F3EDE0; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink);
+        font-family: Georgia, "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
+        line-height:1.7; }
+  main { max-width: 720px; margin: 0 auto; padding: 26px 18px 70px; }
+  .dateline { text-align:center; font-size:12px; letter-spacing:.28em; color:var(--dim);
+             border-bottom:1px solid var(--ink); padding-bottom:8px; }
+  .masthead { text-align:center; padding: 22px 0 6px; }
+  .masthead h1 { margin:0; font-size:40px; font-weight:900; letter-spacing:.08em; }
+  .masthead h1 .dot { color: var(--red); }
+  .eng { text-align:center; font-size:11px; letter-spacing:.5em; color:var(--dim);
+        margin:4px 0 14px; text-transform:uppercase; }
+  .double { border-top:3px solid var(--ink); border-bottom:1px solid var(--ink); height:5px; margin: 2px 0 18px; }
+  .section-label { text-align:center; font-size:12px; letter-spacing:.4em; color:var(--red);
+                  margin: 26px 0 14px; }
+  label { display:block; font-size:13px; letter-spacing:.14em; color:var(--dim); margin:14px 0 4px; }
+  input[type=text], input[type=password], input[type=url], textarea, select {
+        width:100%; padding:8px 6px; border:1px solid var(--hair); background:#FFFDF8;
+        font:inherit; font-size:14px; }
+  input:focus, textarea:focus, select:focus { outline:none; border-color:var(--red); }
+  textarea { resize:vertical; }
+  button { padding:8px 14px; background:var(--ink); color:var(--paper);
+          border:0; font:inherit; font-size:13px; letter-spacing:.2em; cursor:pointer; }
+  button:hover { background:var(--red); }
+  button.ghost { background:transparent; color:var(--ink); border:1px solid var(--hair); }
+  button.ghost:hover { border-color:var(--red); color:var(--red); background:transparent; }
   .cfg-grid { display:grid; grid-template-columns:1fr 1fr; gap:0 14px; }
   @media (max-width:560px) { .cfg-grid { grid-template-columns:1fr; } }
   .panel-card { border:1px solid var(--hair); background:#FFFDF8; padding:12px 12px 10px; margin:12px 0; }
   .panel-head { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .panel-head .idx { font-size:12px; letter-spacing:.2em; color:var(--red); white-space:nowrap; }
-  .panel-head input.name { flex:1 1 160px; }
+  .panel-head input.pname { flex:1 1 160px; }
   .panel-head input.max { width:92px; }
   .panel-head label.short { margin:0; font-size:11px; white-space:nowrap; }
   .judge-card { border:1px dotted var(--hair); padding:10px; margin:10px 0 0; }
   .judge-head { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-  .judge-head input.name { flex:1 1 130px; }
+  .judge-head input.jname { flex:1 1 130px; }
   .judge-head select.tier { width:110px; }
   .judge-persona { margin-top:8px; font-size:13px; min-height:52px; }
   .skills { display:flex; flex-wrap:wrap; gap:4px 14px; margin-top:8px; font-size:12.5px; }
@@ -226,101 +363,87 @@ const INDEX_HTML = `<!DOCTYPE html>
   .row-btns { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
   .cfg-actions { display:flex; gap:10px; margin-top:14px; flex-wrap:wrap; justify-content:center; }
   .subnote { font-size:12px; color:var(--dim); margin:6px 0 0; }
+  .save-bar { position:sticky; bottom:0; background:var(--paper); border-top:1px solid var(--ink);
+             padding:12px 0; display:flex; gap:12px; align-items:center; justify-content:center; flex-wrap:wrap; }
+  .save-bar button { padding:12px 26px; font-size:15px; letter-spacing:.3em; }
+  #save-status { font-size:13px; }
+  #save-status.ok { color:#1a7a3a; }
+  #save-status.err { color:var(--red); }
+  .back { text-align:center; margin-top:8px; font-size:13px; }
+  .back a { color:var(--red); }
 </style></head><body>
-<div class="spine">毕业论文评卷纪要 · 全一册</div>
 <main>
-  <div class="dateline">第 一 期 · 二〇二六年十月 · 毕业论文评卷特辑</div>
+  <div class="dateline">评卷委员会配置 · 保存后投稿页即时生效</div>
   <div class="masthead"><h1>研<span class="dot">·</span>证</h1></div>
-  <div class="eng">Yanzheng — The Thesis Review</div>
+  <div class="eng">Committee Configuration</div>
   <div class="double"></div>
-  <p class="lede">四团十三员，各凭证据独立执笔；分差则仲裁，作假者否决。——本刊评卷章程</p>
-  <div style="text-align:center"><!--BADGE--></div>
 
-  <form id="cfg" action="/review" method="post" enctype="multipart/form-data">
-    <input type="hidden" name="rubric_json" id="rubric_json">
-    <input type="hidden" name="llm_thinking" id="llm_thinking" value="deepseek">
-
-    <div class="section-label">评 卷 委 员 会 配 置</div>
-
-    <label>审 稿 人（AI）· 预 设</label>
-    <select id="llm_preset">
-      <option value="deepseek">DeepSeek（官方端点 · 双档型号）</option>
-      <option value="openai">OpenAI（GPT 系列 · OpenAI 兼容）</option>
-      <option value="anthropic">Anthropic（Claude 系列 · OpenAI 兼容层）</option>
-      <option value="gemini">Google Gemini（OpenAI 兼容层）</option>
-      <option value="kimi">Kimi（月之暗面 Moonshot）</option>
-      <option value="qwen">Qwen（阿里云百炼 · OpenAI 兼容）</option>
-      <option value="glm">GLM（智谱 BigModel）</option>
-      <option value="xai">xAI（Grok 系列）</option>
-      <option value="minimax">MiniMax</option>
-      <option value="openrouter">OpenRouter（聚合 · 可拉取数百型号）</option>
-      <option value="agnes">Agnes 赛事端点（自行填写地址与型号）</option>
-      <option value="custom">自定义 OpenAI 兼容端点（如本地模型服务）</option>
-    </select>
-    <div class="cfg-grid">
-      <div>
-        <label>端 点 地 址（BASE URL）</label>
-        <input type="url" name="llm_base_url" id="llm_base_url" placeholder="__DS_BASE__" spellcheck="false">
-      </div>
-      <div>
-        <label>API KEY（留空 = 演示模式）</label>
-        <input type="password" name="llm_key" id="llm_key" autocomplete="off" placeholder="sk-...">
-      </div>
-      <div>
-        <label>评 卷 档 模 型（flash 档）</label>
-        <input type="text" name="model_judge" id="model_judge" list="model_judge_list" placeholder="__DS_JUDGE__" spellcheck="false">
-        <datalist id="model_judge_list"></datalist>
-      </div>
-      <div>
-        <label>仲 裁 档 模 型（pro 档）</label>
-        <input type="text" name="model_arbiter" id="model_arbiter" list="model_arbiter_list" placeholder="__DS_ARBITER__" spellcheck="false">
-        <datalist id="model_arbiter_list"></datalist>
-      </div>
+  <div class="section-label">审 稿 人（AI）</div>
+  <label>厂 商 预 设</label>
+  <select id="llm_preset">
+    <option value="deepseek">DeepSeek（官方端点 · 双档型号）</option>
+    <option value="openai">OpenAI（GPT 系列 · OpenAI 兼容）</option>
+    <option value="anthropic">Anthropic（Claude 系列 · OpenAI 兼容层）</option>
+    <option value="gemini">Google Gemini（OpenAI 兼容层）</option>
+    <option value="kimi">Kimi（月之暗面 Moonshot）</option>
+    <option value="qwen">Qwen（阿里云百炼 · OpenAI 兼容）</option>
+    <option value="glm">GLM（智谱 BigModel）</option>
+    <option value="xai">xAI（Grok 系列）</option>
+    <option value="minimax">MiniMax</option>
+    <option value="openrouter">OpenRouter（聚合 · 可拉取数百型号）</option>
+    <option value="agnes">Agnes 赛事端点（自行填写地址与型号）</option>
+    <option value="custom">自定义 OpenAI 兼容端点（如本地模型服务）</option>
+  </select>
+  <div class="cfg-grid">
+    <div>
+      <label>端 点 地 址（BASE URL）</label>
+      <input type="url" id="llm_base_url" spellcheck="false">
     </div>
-    <div class="row-btns">
-      <button type="button" class="ghost" id="pull-models">从端点拉取模型列表</button>
-      <span id="pull-status" class="subnote" style="align-self:center">DeepSeek 预设已内置现行型号目录；其他公网端点填好地址（和 key）后点此拉取真实型号（本地/内网端点不提供拉取，型号请手输）。</span>
+    <div>
+      <label>API KEY（留空 = 保持已存值不变；清空后保存 = 切回演示模式）</label>
+      <input type="password" id="llm_key" autocomplete="off" placeholder="">
     </div>
-    <p class="subnote">评卷员默认走「评卷档」（非思考），团长与总仲裁走「仲裁档」（思考模式）。任何 OpenAI 兼容端点均可，本地服务（http://127.0.0.1:...）亦可；模型可从下拉选择，也可直接输入任意型号。</p>
-
-    <label style="margin-top:24px">评 审 团 编 制（可增删评审团 / 评卷员，可自定义视角与技能）</label>
-    <div id="panels"></div>
-    <div class="cfg-actions">
-      <button type="button" class="ghost" id="add-panel">＋ 添 加 评 审 团</button>
-      <button type="button" class="ghost" id="reset-rubric">恢 复 默 认 编 制</button>
+    <div>
+      <label>评 卷 档 模 型（flash 档）</label>
+      <input type="text" id="model_judge" list="model_judge_list" spellcheck="false">
+      <datalist id="model_judge_list"></datalist>
     </div>
-    <p class="subnote">每团满分、团数、员数均由您定；及格线（总分 60%）与等级分档随编制总分等比缩放。留空视角（persona）时自动按团名生成。</p>
-
-    <div class="section-label">投 稿</div>
-    <div class="drop">本刊受理 <b>.pdf / .txt / .md</b> 稿件，篇幅以 20MB 为限
-      <input type="file" name="file" accept=".pdf,.txt,.md" required>
+    <div>
+      <label>仲 裁 档 模 型（pro 档）</label>
+      <input type="text" id="model_arbiter" list="model_arbiter_list" spellcheck="false">
+      <datalist id="model_arbiter_list"></datalist>
     </div>
-    <label>门 检 最 低 字 数</label>
-    <input type="number" name="min_words" value="10000" min="0">
-    <div class="check"><input type="checkbox" name="online" value="1" id="online">
-      <label for="online" style="margin:0;letter-spacing:.05em">启用在线核查（Crossref 验引用 · OpenAlex 检文献）</label></div>
-    <button type="submit" id="go" style="width:100%;margin-top:26px;padding:14px;font-size:17px;letter-spacing:.5em;text-indent:.5em">送 申 评 卷</button>
-    <p class="note">评卷时长取决于编制规模与模型档位：评卷员并行独立打分，其后两级仲裁复核。请勿离席。</p>
-  </form>
+  </div>
+  <div class="row-btns">
+    <button type="button" class="ghost" id="pull-models">从端点拉取模型列表</button>
+    <span id="pull-status" class="subnote" style="align-self:center"></span>
+  </div>
+  <p class="subnote">评卷员默认走「评卷档」（非思考），团长与总仲裁走「仲裁档」（思考模式）。DeepSeek 的私有 thinking 参数按厂商自动适配，不会发给其他家端点。key 保存在本机服务端（data/rubric.json，不入 git）。</p>
 
-  <hr class="rule">
-  <div class="colophon">内容审题四十 · 结构逻辑三十 · 语言表达十五 · 规范核查十五<br>
-  查重不过者打回 · 作假成立者一票否决</div>
-  <div style="text-align:center"><span class="stamp">阅</span></div>
+  <div class="section-label">评 审 团 编 制</div>
+  <p class="subnote" style="margin:0 0 6px">可增删评审团 / 评卷员，自定义名称、视角（persona）、技能与模型档；及格线随编制总分等比缩放。</p>
+  <div id="panels"></div>
+  <div class="cfg-actions">
+    <button type="button" class="ghost" id="add-panel">＋ 添 加 评 审 团</button>
+    <button type="button" class="ghost" id="reset-rubric">恢 复 默 认 编 制</button>
+  </div>
+
+  <div class="save-bar">
+    <button type="button" id="save">保 存 配 置</button>
+    <span id="save-status"></span>
+  </div>
+  <div class="back"><a href="/">← 返回投稿页</a></div>
 </main>
 <script id="skills-data" type="application/json">__SKILLS__</script>
-<script id="rubric-data" type="application/json">__RUBRIC__</script>
+<script id="panels-data" type="application/json">__PANELS__</script>
+<script id="llm-data" type="application/json">__LLM__</script>
 <script>
 (function() {
   var SKILLS = JSON.parse(document.getElementById('skills-data').textContent);
-  var DEFAULT_RUBRIC = JSON.parse(document.getElementById('rubric-data').textContent);
-  var state = JSON.parse(JSON.stringify(DEFAULT_RUBRIC));
+  var state = JSON.parse(document.getElementById('panels-data').textContent);
+  var savedLlm = JSON.parse(document.getElementById('llm-data').textContent);
   var DS = { base: '__DS_BASE__', judge: '__DS_JUDGE__', arbiter: '__DS_ARBITER__' };
 
-  // 具体型号目录：按厂商预设（评卷档=快/便宜，仲裁档=旗舰/思考）。
-  // 目录为常用清单，可能滞后于官方上新——可随时「从端点拉取」或直接手输任意型号。
-  // thinking 字段为 DeepSeek V4 私有语义：仅 deepseek/agnes/custom 预设随请求携带，
-  // 其余第三方端点会因未知参数报 400（详见 core llm/client.ts 的 thinkingStyle）。
   var PRESETS = {
     deepseek: {
       base: DS.base, thinking: 'deepseek',
@@ -363,9 +486,7 @@ const INDEX_HTML = `<!DOCTYPE html>
         { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash · 评卷推荐' },
         { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite · 最快最便宜' }
       ],
-      arbiter: [
-        { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro · 仲裁推荐' }
-      ]
+      arbiter: [ { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro · 仲裁推荐' } ]
     },
     kimi: {
       base: 'https://api.moonshot.cn/v1', thinking: 'off',
@@ -413,21 +534,19 @@ const INDEX_HTML = `<!DOCTYPE html>
     },
     minimax: {
       base: 'https://api.minimaxi.com/v1', thinking: 'off',
-      judge: [
-        { id: 'MiniMax-Text-01', label: 'MiniMax-Text-01 · 评卷档' }
-      ],
-      arbiter: [
-        { id: 'MiniMax-M2', label: 'MiniMax-M2 · 旗舰 · 仲裁推荐' }
-      ]
+      judge: [ { id: 'MiniMax-Text-01', label: 'MiniMax-Text-01 · 评卷档' } ],
+      arbiter: [ { id: 'MiniMax-M2', label: 'MiniMax-M2 · 旗舰 · 仲裁推荐' } ]
     },
-    openrouter: {
-      base: 'https://openrouter.ai/api/v1', thinking: 'off',
-      judge: [],
-      arbiter: []
-    },
+    openrouter: { base: 'https://openrouter.ai/api/v1', thinking: 'off', judge: [], arbiter: [] },
     agnes: { base: '', thinking: 'deepseek', judge: [], arbiter: [] },
     custom: { base: '', thinking: 'deepseek', judge: [], arbiter: [] }
   };
+
+  function el(tag, cls) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    return e;
+  }
   function fillDatalist(id, models) {
     var dl = document.getElementById(id);
     dl.innerHTML = '';
@@ -442,21 +561,53 @@ const INDEX_HTML = `<!DOCTYPE html>
     var p = PRESETS[name] || { judge: [], arbiter: [], thinking: 'deepseek' };
     fillDatalist('model_judge_list', p.judge);
     fillDatalist('model_arbiter_list', p.arbiter);
-    document.getElementById('llm_thinking').value = p.thinking;
   }
+  function presetValue() { return document.getElementById('llm_preset').value; }
 
-  function el(tag, cls) {
-    var e = document.createElement(tag);
-    if (cls) e.className = cls;
-    return e;
+  function applyPreset(keepValues) {
+    var p = PRESETS[presetValue()] || { base: '', judge: [], arbiter: [], thinking: 'deepseek' };
+    var base = document.getElementById('llm_base_url');
+    var mj = document.getElementById('model_judge');
+    var ma = document.getElementById('model_arbiter');
+    applyCatalog(presetValue());
+    if (!keepValues) {
+      base.value = p.base;
+      mj.value = (p.judge[0] || {}).id || '';
+      ma.value = (p.arbiter[0] || {}).id || '';
+    }
+    base.placeholder = p.base || (presetValue() === 'agnes' ? 'https://<agnes-openai-兼容端点>' : 'http://127.0.0.1:11434/v1');
+    var st = document.getElementById('pull-status');
+    if (presetValue() === 'openrouter') {
+      st.textContent = 'OpenRouter 聚合数百型号：填好 key 后点「拉取」。';
+    } else if (p.base) {
+      st.textContent = '已填官方端点与推荐型号；可拉取核验或手输。';
+    } else {
+      st.textContent = '填好端点（和 key）后点「从端点拉取模型列表」。';
+    }
   }
-  function labeled(parent, text, input) {
-    var lb = el('label'); lb.textContent = text; lb.style.margin = '6px 0 2px';
-    parent.appendChild(lb); parent.appendChild(input); return input;
-  }
-  function sync() {
-    document.getElementById('rubric_json').value = JSON.stringify(state);
-  }
+  document.getElementById('llm_preset').addEventListener('change', function() { applyPreset(false); });
+
+  document.getElementById('pull-models').addEventListener('click', function() {
+    var base = document.getElementById('llm_base_url').value.trim();
+    var key = document.getElementById('llm_key').value.trim();
+    var st = document.getElementById('pull-status');
+    if (!base) { st.textContent = '请先填写端点地址'; return; }
+    st.textContent = '拉取中…';
+    fetch('/llm/models', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: base, key: key })
+    }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+    .then(function(r) {
+      if (!r.ok) { st.textContent = '拉取失败：' + (r.d.error || JSON.stringify(r.d)); return; }
+      var ids = r.d.models || [];
+      fillDatalist('model_judge_list', ids.map(function(x) { return { id: x }; }));
+      fillDatalist('model_arbiter_list', ids.map(function(x) { return { id: x }; }));
+      st.textContent = '已拉取 ' + ids.length + ' 个型号（两档共用该列表）。';
+    }).catch(function(e) { st.textContent = '拉取失败：' + e; });
+  });
+
+  // ---------- 编制编辑器 ----------
+  function sync() {}
   function skillBoxes(judge) {
     var box = el('div', 'skills');
     SKILLS.forEach(function(s) {
@@ -466,7 +617,6 @@ const INDEX_HTML = `<!DOCTYPE html>
       cb.addEventListener('change', function() {
         if (cb.checked) { if (judge.skills.indexOf(s.id) === -1) judge.skills.push(s.id); }
         else { judge.skills = judge.skills.filter(function(x) { return x !== s.id; }); }
-        sync();
       });
       lb.appendChild(cb);
       lb.appendChild(document.createTextNode(s.label));
@@ -477,9 +627,9 @@ const INDEX_HTML = `<!DOCTYPE html>
   function judgeCard(panel, judge, ji) {
     var card = el('div', 'judge-card');
     var head = el('div', 'judge-head');
-    var name = document.createElement('input'); name.type = 'text'; name.className = 'name';
-    name.value = judge.name; name.placeholder = '评卷员名称';
-    name.addEventListener('input', function() { judge.name = name.value; sync(); });
+    var name = document.createElement('input'); name.type = 'text'; name.className = 'jname';
+    name.value = judge.name || '';
+    name.addEventListener('input', function() { judge.name = name.value; });
     head.appendChild(name);
     var tier = document.createElement('select'); tier.className = 'tier';
     [['flash', '评卷档 flash'], ['pro', '仲裁档 pro']].forEach(function(t) {
@@ -487,7 +637,7 @@ const INDEX_HTML = `<!DOCTYPE html>
       tier.appendChild(o);
     });
     tier.value = judge.modelTier || 'flash';
-    tier.addEventListener('change', function() { judge.modelTier = tier.value; sync(); });
+    tier.addEventListener('change', function() { judge.modelTier = tier.value; });
     head.appendChild(tier);
     var del = el('button', 'ghost'); del.type = 'button'; del.textContent = '删除';
     del.addEventListener('click', function() {
@@ -498,7 +648,7 @@ const INDEX_HTML = `<!DOCTYPE html>
     card.appendChild(head);
     var persona = document.createElement('textarea'); persona.className = 'judge-persona';
     persona.value = judge.persona || ''; persona.placeholder = '评卷视角（persona）：该评卷员只负责什么？重点看哪里？';
-    persona.addEventListener('input', function() { judge.persona = persona.value; sync(); });
+    persona.addEventListener('input', function() { judge.persona = persona.value; });
     card.appendChild(persona);
     card.appendChild(skillBoxes(judge));
     return card;
@@ -508,15 +658,15 @@ const INDEX_HTML = `<!DOCTYPE html>
     var head = el('div', 'panel-head');
     var idx = el('span', 'idx'); idx.textContent = '第 ' + (pi + 1) + ' 团 · ' + panel.judges.length + ' 员';
     head.appendChild(idx);
-    var name = document.createElement('input'); name.type = 'text'; name.className = 'name';
-    name.value = panel.name; name.placeholder = '评审团名称';
-    name.addEventListener('input', function() { panel.name = name.value; sync(); });
+    var name = document.createElement('input'); name.type = 'text'; name.className = 'pname';
+    name.value = panel.name || '';
+    name.addEventListener('input', function() { panel.name = name.value; });
     head.appendChild(name);
     var maxLbl = el('label', 'short'); maxLbl.textContent = '团满分';
     head.appendChild(maxLbl);
     var max = document.createElement('input'); max.type = 'number'; max.className = 'max';
     max.min = '1'; max.value = panel.maxScore;
-    max.addEventListener('input', function() { panel.maxScore = Number(max.value) || panel.maxScore; sync(); });
+    max.addEventListener('input', function() { panel.maxScore = Number(max.value) || panel.maxScore; });
     head.appendChild(max);
     var del = el('button', 'ghost'); del.type = 'button'; del.textContent = '删除本团';
     del.addEventListener('click', function() {
@@ -540,7 +690,6 @@ const INDEX_HTML = `<!DOCTYPE html>
     var root = document.getElementById('panels');
     root.innerHTML = '';
     state.forEach(function(p, pi) { root.appendChild(panelCard(p, pi)); });
-    sync();
   }
   document.getElementById('add-panel').addEventListener('click', function() {
     state.push({ name: '新评审团', maxScore: 20, weightHint: '',
@@ -548,57 +697,59 @@ const INDEX_HTML = `<!DOCTYPE html>
     render();
   });
   document.getElementById('reset-rubric').addEventListener('click', function() {
-    state = JSON.parse(JSON.stringify(DEFAULT_RUBRIC)); render();
+    // 恢复为服务端保存的编制（非全局默认）；要全局默认可清 data/rubric.json
+    fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ llm: { keep: true }, panels: null }) })
+      .then(function() { return fetch('/config'); })
+      .then(function(r) { location.reload(); });
   });
-  var preset = document.getElementById('llm_preset');
-  function applyPreset() {
-    var p = PRESETS[preset.value] || { base: '', judge: [], arbiter: [], thinking: 'deepseek' };
-    var base = document.getElementById('llm_base_url');
-    var mj = document.getElementById('model_judge');
-    var ma = document.getElementById('model_arbiter');
-    applyCatalog(preset.value);
-    base.value = p.base; mj.value = (p.judge[0] || {}).id || ''; ma.value = (p.arbiter[0] || {}).id || '';
-    base.placeholder = p.base || (preset.value === 'agnes' ? 'https://<agnes-openai-兼容端点>' : 'http://127.0.0.1:11434/v1');
-    mj.placeholder = '评卷档模型名（可下拉选或拉取）'; ma.placeholder = '仲裁档模型名（可下拉选或拉取）';
-    var st = document.getElementById('pull-status');
-    if (preset.value === 'openrouter') {
-      st.textContent = 'OpenRouter 聚合数百个型号：填好 key 后点「从端点拉取模型列表」选择；也可手输如 openai/gpt-5、anthropic/claude-sonnet-4-5。';
-    } else if (p.base) {
-      st.textContent = '已填官方端点与推荐型号；型号目录若滞后于官方上新，可点「从端点拉取模型列表」或直接手输。';
-    } else {
-      st.textContent = '填好端点地址（和 key）后点「从端点拉取模型列表」，即可从下拉选择真实型号。';
-    }
-  }
-  preset.addEventListener('change', applyPreset);
-  document.getElementById('pull-models').addEventListener('click', function() {
-    var base = document.getElementById('llm_base_url').value.trim();
-    var key = document.getElementById('llm_key').value;
-    var st = document.getElementById('pull-status');
-    if (!base) { st.textContent = '请先填写端点地址'; return; }
-    st.textContent = '拉取中…';
-    fetch('/llm/models', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: base, key: key })
-    }).then(function(r) {
-      return r.json().then(function(d) { return { ok: r.ok, d: d }; });
-    }).then(function(r) {
-      if (!r.ok) { st.textContent = '拉取失败：' + (r.d.error || JSON.stringify(r.d)); return; }
-      var ids = r.d.models || [];
-      fillDatalist('model_judge_list', ids.map(function(x) { return { id: x }; }));
-      fillDatalist('model_arbiter_list', ids.map(function(x) { return { id: x }; }));
-      st.textContent = '已拉取 ' + ids.length + ' 个型号（两档共用该列表；直接在输入框点击即可下拉选择，也可手输任意型号）';
-    }).catch(function(e) {
-      st.textContent = '拉取失败：' + e;
-    });
+
+  // ---------- 保存 ----------
+  document.getElementById('save').addEventListener('click', function() {
+    var st = document.getElementById('save-status');
+    var keyInput = document.getElementById('llm_key').value;
+    var body = {
+      llm: {
+        preset: presetValue(),
+        baseUrl: document.getElementById('llm_base_url').value.trim(),
+        modelJudge: document.getElementById('model_judge').value.trim(),
+        modelArbiter: document.getElementById('model_arbiter').value.trim(),
+        thinkingStyle: (PRESETS[presetValue()] || {}).thinking || 'deepseek'
+      },
+      panels: state
+    };
+    // key 语义：留空 = 保持已存值；输入"清空"两个字 = 清除；其余 = 新 key
+    if (keyInput === '清空') body.llm.apiKey = null;
+    else if (keyInput !== '') body.llm.apiKey = keyInput;
+    // 未触碰（占位文案）或留空 → 不带 apiKey 字段 = 服务端保留原值
+
+    var btn = document.getElementById('save');
+    btn.disabled = true;
+    st.className = ''; st.textContent = '保存中…';
+    fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body) })
+      .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+      .then(function(r) {
+        btn.disabled = false;
+        if (r.ok) {
+          st.className = 'ok';
+          st.textContent = '已保存：' + r.d.panels + ' 团 ' + r.d.judges + ' 员 —— 投稿页即时生效';
+        } else {
+          st.className = 'err';
+          st.textContent = '保存失败：' + (r.d.error || JSON.stringify(r.d));
+        }
+      })
+      .catch(function(e) { btn.disabled = false; st.className = 'err'; st.textContent = '保存失败：' + e; });
   });
-  document.getElementById('cfg').addEventListener('submit', function() {
-    sync();
-    var b = document.getElementById('go');
-    b.disabled = true; b.textContent = '评 卷 中 · 请 候';
-  });
+
+  // ---------- 初始化（读取服务端已保存值） ----------
+  document.getElementById('llm_preset').value = savedLlm.preset || 'deepseek';
+  document.getElementById('llm_base_url').value = savedLlm.baseUrl || '';
+  document.getElementById('model_judge').value = savedLlm.modelJudge || '';
+  document.getElementById('model_arbiter').value = savedLlm.modelArbiter || '';
+  document.getElementById('llm_key').placeholder = savedLlm.apiKey || 'sk-...（留空保持不变）';
+  applyCatalog(savedLlm.preset || 'deepseek');
   render();
-  applyPreset();
 })();
 </script>
 </body></html>`

@@ -8,6 +8,10 @@ coverage/
 .zcode/
 .playwright-mcp/
 
+# 运行时配置（可能含用户自填的 API key，不入库）
+data/
+
+
 # 生成的评卷产物（可随时重新生成）
 *报告.html
 *报告.pptx
