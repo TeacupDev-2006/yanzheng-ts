@@ -10,7 +10,14 @@
 import { parseArgs } from 'node:util'
 import { readFile, writeFile } from 'node:fs/promises'
 import { basename } from 'node:path'
-import { reviewPaper, renderHtml, loadCorpusDir, parsePdfText, exportPptx } from '@yanzheng/core'
+import {
+  reviewPaper,
+  renderHtml,
+  loadCorpusDir,
+  parsePdfText,
+  exportPptx,
+  loadRetractionIndex,
+} from '@yanzheng/core'
 
 export async function main(argv: string[]): Promise<number> {
   let args
@@ -24,6 +31,7 @@ export async function main(argv: string[]): Promise<number> {
         out: { type: 'string', default: '评卷报告.html' },
         'min-words': { type: 'string', default: '10000' },
         ppt: { type: 'string' },
+        retractions: { type: 'string' },
         help: { type: 'boolean', short: 'h', default: false },
       },
       allowPositionals: true,
@@ -60,6 +68,11 @@ export async function main(argv: string[]): Promise<number> {
     corpus = await loadCorpusDir(args.values.corpus)
     console.log(`已加载语料 ${Object.keys(corpus).length} 篇`)
   }
+  let retractions: ReturnType<typeof loadRetractionIndex> | undefined
+  if (args.values.retractions) {
+    retractions = loadRetractionIndex(await readFile(args.values.retractions, 'utf-8'))
+    console.log(`已加载撤稿索引 ${retractions.size} 条（引用核查将自动标记已撤稿文献）`)
+  }
 
   console.log(`开始评卷（${basename(paperPath)}）...`)
   const report = await reviewPaper({
@@ -69,6 +82,7 @@ export async function main(argv: string[]): Promise<number> {
     online: args.values.online ?? false,
     apiKey,
     minWords,
+    retractions,
   })
 
   const g = report.gate

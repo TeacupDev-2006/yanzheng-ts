@@ -10,6 +10,7 @@ import { runGate } from './gates/gates.js'
 import { panelArbitration, chiefArbitration } from './arbiter.js'
 import { ALL_PANELS, normalizePanels, type JudgeSpec, type PanelSpec } from './rubric.js'
 import { BaseJudge, runSkill, type JudgeContext } from './judges/base-judge.js'
+import type { RetractionRecord } from './skills/citation.js'
 import {
   createReviewReport,
   newArbitrationLog,
@@ -59,6 +60,8 @@ export interface ReviewOptions {
   modelPro?: string
   /** 思考开关请求体风格：'deepseek'（默认，DeepSeek V4 语义）| 'off'（第三方端点不携带） */
   thinkingStyle?: 'deepseek' | 'off'
+  /** 可选：Retraction Watch 撤稿索引，传入后引用核查自动标记已撤稿文献 */
+  retractions?: Map<string, RetractionRecord>
   /** 自定义评审团编制（缺省为标准 4 团 13 员）；经 normalizePanels 校验 */
   panels?: PanelSpec[]
   /** 消融开关：每团只取前 N 名评卷员（null=全部） */
@@ -95,7 +98,11 @@ export async function reviewPaper(opts: ReviewOptions): Promise<ReviewReport> {
   const fullText = opts.text
 
   // ---------- 2. 各团并行、团内评卷员并行（互相不可见） ----------
-  const context: JudgeContext = { corpus, online: opts.online ?? false }
+  const context: JudgeContext = {
+    corpus,
+    online: opts.online ?? false,
+    retractions: opts.retractions,
+  }
   const panels = normalizePanels(opts.panels ?? ALL_PANELS)
   let judgeItems: { panel: PanelSpec; spec: JudgeSpec }[] = []
   const judgesLimit = opts.judgesLimit ?? null

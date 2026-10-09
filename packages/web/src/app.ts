@@ -13,12 +13,16 @@
  */
 
 import { Hono } from 'hono'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   reviewPaper,
   renderHtml,
   demoMockLLM,
   normalizePanels,
   listModels,
+  loadRetractionIndex,
   ALL_PANELS,
   AVAILABLE_SKILLS,
   type PanelSpec,
@@ -31,6 +35,12 @@ export const MAX_UPLOAD = 20 * 1024 * 1024
 const DEEPSEEK_BASE = 'https://api.deepseek.com'
 const DEEPSEEK_JUDGE_MODEL = 'deepseek-flash'
 const DEEPSEEK_ARBITER_MODEL = 'deepseek-v4-pro'
+
+/** 撤稿索引约定路径：<dataDir>/retractions.csv（存在即自动启用引用撤稿核验）。 */
+function retractionsCsvPath(): string {
+  const base = process.env.YANZHENG_DATA_DIR ?? join(fileURLToPath(new URL('../../../data/', import.meta.url)))
+  return join(base, 'retractions.csv')
+}
 
 export function createApp(): Hono {
   const app = new Hono()
@@ -148,6 +158,15 @@ export function createApp(): Hono {
     const cfg = await loadConfig()
     const tempKey = String(form.llm_key ?? '').trim()
     const apiKey = tempKey || cfg.llm.apiKey || null
+    // 撤稿索引：data/retractions.csv 存在即自动启用（Retraction Watch 导出，零配置）
+    let retractions: Map<string, import('@yanzheng/core').RetractionRecord> | undefined
+    try {
+      const csv = await readFile(retractionsCsvPath(), 'utf-8')
+      retractions = loadRetractionIndex(csv)
+      console.log(`已加载撤稿索引 ${retractions.size} 条`)
+    } catch {
+      // 未提供撤稿索引 → 跳过撤稿核验
+    }
 
     const data = Buffer.from(await file.arrayBuffer())
     const text = ext === '.pdf' ? await pdfTextOf(data) : data.toString('utf-8')
@@ -166,6 +185,7 @@ export function createApp(): Hono {
         modelFlash: cfg.llm.modelJudge || undefined,
         modelPro: cfg.llm.modelArbiter || undefined,
         thinkingStyle: cfg.llm.thinkingStyle,
+        retractions,
       })
       return c.html(renderHtml(report))
     } catch (exc) {
