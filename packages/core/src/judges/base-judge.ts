@@ -13,14 +13,18 @@ import {
 } from '../models.js'
 import { CONFIDENCE_FLOOR, type JudgeSpec } from '../rubric.js'
 import { splitSections } from '../skills/pdf-parse.js'
-import { runSimilarityCheck } from '../skills/similarity.js'
-import { runCitationCheck } from '../skills/citation.js'
+import { runSimilarityCheck, lexicalVectorEmbed } from '../skills/similarity.js'
+import { runCitationCheck, type RetractionRecord } from '../skills/citation.js'
 import { runDataConsistency } from '../skills/consistency.js'
 import { runLiteratureReview } from '../skills/literature.js'
 
 export interface JudgeContext {
   corpus: Record<string, string>
   online: boolean
+  /** 可选：Retraction Watch 撤稿索引（loadRetractionIndex 产出），传入即启用引用撤稿标记 */
+  retractions?: Map<string, RetractionRecord>
+  /** 可选：启用词袋混合相似度（捕获改写型抄袭；默认关闭保持纯 n-gram 行为） */
+  lexicalHybrid?: boolean
   [key: string]: unknown
 }
 
@@ -40,10 +44,22 @@ export async function runSkill(
       }
     }
     if (skill === 'similarity_check') {
-      return runSimilarityCheck(paperText, (context.corpus ?? {}) as Record<string, string>) as unknown as Record<string, unknown>
+      // 实验二（@yanzheng/eval recall-curve）实测：词袋混合(0.7)把中/重度改写召回
+      // 从 50% 提升到 100%，故评卷流水线默认启用；n=8 逐字路径不受影响
+      return runSimilarityCheck(
+        paperText,
+        (context.corpus ?? {}) as Record<string, string>,
+        lexicalVectorEmbed,
+        0.7,
+      ) as unknown as Record<string, unknown>
     }
     if (skill === 'citation_check') {
-      return (await runCitationCheck(paperText, context.online ?? false)) as unknown as Record<string, unknown>
+      return (await runCitationCheck(
+        paperText,
+        context.online ?? false,
+        30,
+        context.retractions,
+      )) as unknown as Record<string, unknown>
     }
     if (skill === 'data_consistency') {
       return runDataConsistency(paperText) as unknown as Record<string, unknown>

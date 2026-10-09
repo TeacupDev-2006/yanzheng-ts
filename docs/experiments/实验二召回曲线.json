@@ -1,0 +1,39 @@
+{
+  "rows": [
+    {
+      "level": "verbatim",
+      "ngramRecall": 1,
+      "hybridRecall": 1,
+      "hybridRecall70": 1,
+      "ngramMeanRate": 1,
+      "hybridMeanScore": 1
+    },
+    {
+      "level": "light",
+      "ngramRecall": 1,
+      "hybridRecall": 1,
+      "hybridRecall70": 1,
+      "ngramMeanRate": 0.9932,
+      "hybridMeanScore": 0.9708
+    },
+    {
+      "level": "medium",
+      "ngramRecall": 0.5,
+      "hybridRecall": 0.5,
+      "hybridRecall70": 1,
+      "ngramMeanRate": 0.4384,
+      "hybridMeanScore": 0.6581
+    },
+    {
+      "level": "heavy",
+      "ngramRecall": 0.5,
+      "hybridRecall": 0.5,
+      "hybridRecall70": 1,
+      "ngramMeanRate": 0.4311,
+      "hybridMeanScore": 0.6468
+    }
+  ],
+  "samples": 2,
+  "threshold": 0.5,
+  "seed": 42
+}

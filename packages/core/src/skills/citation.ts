@@ -5,9 +5,114 @@
  * - 命中：返回 DOI/标题相似度证据
  * - 未命中：标记"疑似捏造"疑点（严重等级由总仲裁复核裁定）
  * - 无网络时降级为"仅格式解析"模式，并在结果中注明
+ * - 可选：对 Retraction Watch 撤稿索引做交叉核验，命中即标记 retracted
  */
 
 import { guardedFetch } from './http-guard.js'
+
+export interface RefEntry {
+  raw: string
+  index: number
+  titleGuess: string
+  authorsGuess: string
+  yearGuess: string
+}
+
+export interface RetractionRecord {
+  doi: string
+  title: string
+  reason: string
+}
+
+/** 解析 Retraction Watch 风格 CSV（含 OriginalPaperDOI / Title / RetractionNature 列，支持引号转义）。 */
+export function loadRetractionIndex(csv: string): Map<string, RetractionRecord> {
+  const map = new Map<string, RetractionRecord>()
+  const rows = parseCsvRows(csv)
+  if (rows.length < 2) return map
+  const header = rows[0]!.map((h) => h.trim().toLowerCase())
+  const iDoi = header.findIndex((h) => h.includes('originalpaperdoi'))
+  const iTitle = header.findIndex((h) => h === 'title')
+  const iReason = header.findIndex((h) => h.includes('retractionnature'))
+  for (const row of rows.slice(1)) {
+    const doi = normalizeDoi(row[iDoi] ?? '')
+    const title = (row[iTitle] ?? '').trim()
+    if (!doi && !title) continue
+    const rec: RetractionRecord = { doi, title, reason: (row[iReason] ?? '').trim() }
+    if (doi) map.set(`doi:${doi}`, rec)
+    if (title) map.set(`t:${titleKey(title)}`, rec)
+  }
+  return map
+}
+
+/** 极简 CSV 解析：支持双引号包裹与 "" 转义（覆盖 Retraction Watch 导出格式）。 */
+function parseCsvRows(csv: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let field = ''
+  let inQuotes = false
+  for (let i = 0; i < csv.length; i++) {
+    const ch = csv[i]!
+    if (inQuotes) {
+      if (ch === '"') {
+        if (csv[i + 1] === '"') {
+          field += '"'
+          i++
+        } else inQuotes = false
+      } else field += ch
+    } else if (ch === '"') {
+      inQuotes = true
+    } else if (ch === ',') {
+      row.push(field)
+      field = ''
+    } else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && csv[i + 1] === '\n') i++
+      row.push(field)
+      field = ''
+      if (row.some((f) => f.trim() !== '')) rows.push(row)
+      row = []
+    } else field += ch
+  }
+  row.push(field)
+  if (row.some((f) => f.trim() !== '')) rows.push(row)
+  return rows
+}
+
+export function normalizeDoi(doi: string): string {
+  return doi
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\/(dx\.)?doi\.org\//, '')
+    .replace(/^doi:\s*/, '')
+    .replace(/[.,;:）)]+$/, '')
+}
+
+function titleKey(title: string): string {
+  return title.toLowerCase().replace(/\W+/g, '')
+}
+
+/** 撤稿交叉核验：DOI 精确匹配优先，标题精确/包含匹配兜底。 */
+export function matchRetraction(
+  entry: RefEntry,
+  index: Map<string, RetractionRecord>,
+): RetractionRecord | null {
+  const m = entry.raw.match(/doi[:\s]*([^\s,;]+)/i)
+  const doi = normalizeDoi(m?.[1] ?? '')
+  if (doi) {
+    const hit = index.get(`doi:${doi}`)
+    if (hit) return hit
+  }
+  if (entry.titleGuess) {
+    const hit = index.get(`t:${titleKey(entry.titleGuess)}`)
+    if (hit) return hit
+    const key = titleKey(entry.titleGuess)
+    if (key.length >= 10) {
+      for (const [k, rec] of index) {
+        if (k.startsWith('t:') && (k.includes(key) || key.includes(k.slice(2)))) return rec
+      }
+    }
+  }
+  return null
+}
 
 export interface RefEntry {
   raw: string
@@ -119,17 +224,26 @@ export interface CitationCheckResult {
   total: number
   verified: number
   fabricated_candidates: number
+  retracted_count: number
   details: {
     index: number
     raw: string
     status: string
     evidence: string
     score: number
+    retracted: boolean
+    retraction_reason: string
   }[]
 }
 
-/** skill 入口：返回 {"entries", "fabricated_candidates", "mode"}。 */
-export async function runCitationCheck(text: string, online = true, maxItems = 30): Promise<CitationCheckResult> {
+/** skill 入口：返回 {"entries", "fabricated_candidates", "mode"}。
+ *  retractions：可选撤稿索引（loadRetractionIndex 产出），传入即对每条引用做交叉核验。 */
+export async function runCitationCheck(
+  text: string,
+  online = true,
+  maxItems = 30,
+  retractions?: Map<string, RetractionRecord>,
+): Promise<CitationCheckResult> {
   const entries = parseReferences(text).slice(0, maxItems)
   const results: RefCheckResult[] = []
   for (const e of entries) results.push(await checkReference(e, online))
@@ -139,12 +253,22 @@ export async function runCitationCheck(text: string, online = true, maxItems = 3
     total: results.length,
     verified: results.filter((r) => r.status === 'verified').length,
     fabricated_candidates: fabricated.length,
-    details: results.map((r) => ({
-      index: r.entry.index,
-      raw: r.entry.raw.slice(0, 120),
-      status: r.status,
-      evidence: r.evidence,
-      score: Math.round(r.score * 1000) / 1000,
-    })),
+    retracted_count: retractions
+      ? results.filter((r) => matchRetraction(r.entry, retractions) !== null).length
+      : 0,
+    details: results.map((r) => {
+      const rec = retractions ? matchRetraction(r.entry, retractions) : null
+      return {
+        index: r.entry.index,
+        raw: r.entry.raw.slice(0, 120),
+        status: r.status,
+        evidence: rec
+          ? `[已撤稿] ${rec.reason || '撤稿记录命中'}；${r.evidence}`
+          : r.evidence,
+        score: Math.round(r.score * 1000) / 1000,
+        retracted: rec !== null,
+        retraction_reason: rec?.reason ?? '',
+      }
+    }),
   }
 }

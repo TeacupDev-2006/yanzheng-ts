@@ -1,0 +1,4 @@
+[1] 王强. 基于深度学习的垃圾图像分类研究[J]. 环境工程, 2021. doi: 10.1000/o1.
+[2] 李明. 校园垃圾分类政策实施效果评估[J]. 2022.
+[3] Smith J. Deep Learning for Robotic Grasping: A Survey[J]. IEEE Trans. 2020.
+[4] 陈华. 图像增强算法综述[J]. 计算机学报, 2019.

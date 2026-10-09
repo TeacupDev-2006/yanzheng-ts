@@ -44,6 +44,26 @@ export function cosine(a: number[], b: number[]): number {
   return na && nb ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0
 }
 
+/**
+ * 词袋嵌入（内置轻量语义层）：字符 3-gram 哈希到固定维度 + TF + L2 归一化。
+ * 与 n-gram Jaccard 混合后，对"同义替换/语序调整"型改写比纯 8-gram 指纹更稳
+ * （改写会打散 8-gram，但词面重叠仍在）。无需外部模型，可离线复现。
+ */
+export function lexicalVectorEmbed(s: string, dim = 512): number[] {
+  const vec = new Array<number>(dim).fill(0)
+  const t = s.replace(PY_WS_STRIP, '')
+  for (let i = 0; i + 3 <= t.length; i++) {
+    let h = 0
+    for (let j = 0; j < 3; j++) h = (Math.imul(31, h) + t.charCodeAt(i + j)!) | 0
+    const bucket = ((h >>> 0) % dim + dim) % dim
+    vec[bucket]! += 1
+  }
+  let norm = 0
+  for (const v of vec) norm += v * v
+  norm = Math.sqrt(norm)
+  return norm > 0 ? vec.map((v) => v / norm) : vec
+}
+
 export interface ChunkMatch {
   corpusDoc: string
   chunkIndex: number
@@ -178,11 +198,14 @@ function round4(x: number): number {
   return Math.round(x * 10000) / 10000
 }
 
-/** skill 入口：返回 {"abstain", "rate", "matches"}。语料库为空时 abstain=true（无证据不打分）。 */
+/** skill 入口：返回 {"abstain", "rate", "matches"}。语料库为空时 abstain=true（无证据不打分）。
+ *  embedWeight：词袋分量权重（实验依据：0.7 时中/重度改写召回 100% vs 纯 n-gram 50%，
+ *  见 @yanzheng/eval recall-curve 实验二；0 = 纯 n-gram 旧行为）。 */
 export function runSimilarityCheck(
   queryText: string,
   corpus: Record<string, string>,
   embedFn: EmbedFn | null = null,
+  embedWeight = 0.5,
 ): SimilarityResult {
   if (!corpus || Object.keys(corpus).length === 0) {
     return {
@@ -192,7 +215,7 @@ export function runSimilarityCheck(
       note: '未提供查重语料库，重复率无法核验——评卷员应回避本项而非凭空给分',
     }
   }
-  const matches = hybridChunkMatch(queryText, corpus, embedFn)
+  const matches = hybridChunkMatch(queryText, corpus, embedFn, 8, 5, embedWeight)
   const rate = matches.length ? Math.max(...matches.map((m) => m.combined)) : 0
   return {
     abstain: false,

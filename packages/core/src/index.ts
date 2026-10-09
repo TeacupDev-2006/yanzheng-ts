@@ -14,7 +14,7 @@ export type { ChatMessage, ChatOptions, ChatResult, MockFn } from './llm/client.
 export { demoMockLLM } from './llm/demo-mock.js'
 export { parsePdfText, splitSections, loadPaper } from './skills/pdf-parse.js'
 export type { PaperSection, LoadPaperResult } from './skills/pdf-parse.js'
-export { hybridChunkMatch, loadCorpusDir, runSimilarityCheck, cosine } from './skills/similarity.js'
+export { hybridChunkMatch, loadCorpusDir, runSimilarityCheck, cosine, lexicalVectorEmbed } from './skills/similarity.js'
 export type { ChunkMatch, SimilarityResult, EmbedFn } from './skills/similarity.js'
 export * from './skills/citation.js'
 export * from './skills/consistency.js'
