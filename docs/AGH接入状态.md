@@ -34,10 +34,32 @@ STEP OK  执行记录导出 — AGH执行记录.jsonl（67 行含工具调用）
 6. **file: 来源坑**：相对解析根是 `$AGH_HOME/profiles/<profile>/`，插件副本须放入该处
 7. 会话：`client.workspace.add(cwd)` 后 `client.session.new({cwd})`；审批 handler 在 new 后注册（仅 load 支持参数式）
 
-## 待办（可选增强）
+## 闭环复跑（Windows CMD 一键脚本）
 
-- 用赛事发放的 **Agnes key** 重跑闭环（把回环 provider 换成真实 Agnes 端点）——证据等级更高
-- 真实 OpenReview 样本的实验①分布结论（框架已就绪）
+**注意：`@agnes/*` 的构建命令必须在 `D:\ZCode\agnes-harness` 目录下执行**（TS重构目录里没有这些包）；
+CMD 路径一律用反斜杠（`d/ZCode/...` 会被解析成 `D:\dZCode`）。
+
+日常复跑（已封装，CMD 直接运行）：
+
+```bat
+scripts\run-agh-e2e.cmd
+```
+
+脚本自动设置 AGH_HOME / AGNES_PROFILE / AGNES_NODE_HEADERS 并经 tsx 运行闭环
+（SDK 直连 → 插件幂等装启 → 3 步工具真实执行含审批 → 执行记录导出）。
+
+手动分步版（等价，一次性构建时用；bash 风格仅示意，CMD 需换 `set` 与反斜杠）：
+
+```bash
+export AGNES_NODE_HEADERS=D:/ZCode/node-headers/24.21.0
+cd D:\ZCode\agnes-harness
+pnpm --filter @agnes/system-node build:native   # MSVC 编译 agnes-system.node（已完成）
+pnpm --filter @agnes/cli build:local            # 产出 packages/cli/dist/local/agnes.mjs（已完成）
+```
+
+运行与验证证据（第八节）：
+- 正常：`docs/AGH执行记录.jsonl`（daemon 原生 envelope，67+ 行工具调用）
+- 边界/失败：三大测试套件 + 打回/降级/SSRF 拦截用例（对照清单第五节映射）
 
 
 ## 已完成 ✅

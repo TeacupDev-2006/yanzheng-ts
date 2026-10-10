@@ -30,7 +30,7 @@
     },
     {
       "name": "③ thesis_review 经 daemon 真实执行（含审批流）",
-      "detail": "report_id=ba48428adeac score=71 vetoed=true"
+      "detail": "report_id=1005a334bdc2 score=71 vetoed=true"
     },
     {
       "name": "权限审批流验证",
@@ -38,7 +38,7 @@
     },
     {
       "name": "执行记录导出",
-      "detail": "AGH执行记录.jsonl（67 行含工具调用）/ AGH执行记录.html，sessionId=agnes:local:local-dev:cli:workspace:248e7795f05d4767"
+      "detail": "AGH执行记录.jsonl（84 行含工具调用）/ AGH执行记录.html，sessionId=agnes:local:local-dev:cli:workspace:248e7795f05d4767"
     }
   ],
   "package": {
@@ -50,7 +50,7 @@
   },
   "packageStatus": "@agnes/document-reader@0.1.2 desired=enabled actual=running trusted=true\n@agnes/mcp-helper@0.1.0 desired=enabled actual=running trusted=true\n@agnes/plugin-helper@0.1.1 desired=enabled actual=running trusted=true\n@agnes/skill-helper@0.1.1 desired=enabled actual=running trusted=true\n@yanzheng/agh-plugin@0.6.0 desired=enabled actual=running trusted=true",
   "review": {
-    "report_id": "ba48428adeac",
+    "report_id": "1005a334bdc2",
     "mode": "mock",
     "gate_passed": true,
     "word_count": 1267,
