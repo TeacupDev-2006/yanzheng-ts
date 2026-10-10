@@ -26,10 +26,8 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const DOCS = join(REPO, 'docs')
 
 const env = {
-  PATH: process.env.PATH,
-  SYSTEMROOT: process.env.SYSTEMROOT,
-  TEMP: process.env.TEMP,
-  TMP: process.env.TMP,
+  ...process.env, // 全量继承：daemon 存活检测（命名管道连接/win32 processStartId 校验）依赖完整系统环境，
+  // 精简白名单会让 CLI 在已运行 daemon 时误报 running:false
   AGH_HOME: HOME,
   AGNES_PROFILE: 'local-dev',
 }
@@ -39,8 +37,13 @@ const run = (args, cwd = PLUGIN_DIR) =>
       process.execPath,
       [AGNES_CLI, ...args],
       { cwd, env, timeout: 60000, maxBuffer: 4 * 1024 * 1024 },
-      (error, stdout, stderr) =>
-        error ? reject(Object.assign(new Error(`CLI ${args[0]}: ${stderr.trim()}`), { cause: error })) : done({ stdout, stderr }),
+      (error, stdout, stderr) => {
+        if (error) {
+          console.error(`[CLI ${args.join(' ')}] code=${error.code} stdout=${stdout.slice(0, 300)} stderr=${stderr.slice(0, 300)}`)
+          return reject(Object.assign(new Error(`CLI ${args[0]}: ${stderr.trim() || stdout.trim() || error.message}`), { cause: error }))
+        }
+        done({ stdout, stderr })
+      },
     )
   })
 
@@ -75,8 +78,7 @@ const { startProviderFixture } = await import(
 let client
 let provider
 try {
-  // ---------- 0. 隔离实例初始化 ----------
-  await rm(HOME, { recursive: true, force: true })
+  // ---------- 0. 隔离实例初始化（幂等：daemon 运行中/文件被锁时复用现有实例） ----------
   await mkdir(join(HOME, 'profiles/local-dev'), { recursive: true })
   await writeFile(
     join(HOME, 'profiles/local-dev/profile.yaml'),
@@ -93,14 +95,19 @@ try {
   step('daemon 冷启动（隔离 AGH_HOME）', HOME)
 
   // ---------- 1. SDK 直连 daemon ----------
+  // Windows 命名管线要求服务端身份校验（防任意进程伪装），owner.json 提供 pid + processStartId
   const owner = JSON.parse(await readFile(join(HOME, 'data/daemon/owner.json'), 'utf8'))
   client = createClient({
-    transport: { kind: 'unix', path: owner.socketPath },
+    transport: {
+      kind: 'unix',
+      path: owner.socketPath,
+      serverIdentity: { pid: owner.pid, processStartId: owner.processStartId },
+    },
     auth: { kind: 'local' },
     journal: memoryJournal(),
   })
   await client.initialize()
-  step('SDK 连接 daemon socket', owner.socketPath)
+  step('SDK 连接 daemon（管道+身份校验）', owner.socketPath)
 
   // ---------- 2. inspect → install → trust → enable ----------
   const common = { profile: 'local-dev', clientId: await client.clientId() }
@@ -140,30 +147,38 @@ try {
   const model = catalogue.models[0]?.id
   assert.ok(model, 'fixture catalogue model')
   provider = await startProviderFixture('研证工具链演示完成。', undefined, model)
+  const current = await client.config.get()
   await client.config.save({
     providerId: 'deepseek',
     baseUrl: provider.baseUrl,
     apiKey: provider.apiKey,
     model,
-    expectedRevision: 0,
+    expectedRevision: current.revision,
   })
   step('回环 provider 夹具接入（无真实模型账号）', `model=${model}`)
 
   const approvals = []
-  const session = await client.session.load(undefined, {
-    onPermissionRequest: async (request) => {
-      approvals.push(request)
-      return { optionId: request.options.find((o) => o.kind === 'allow_once').optionId }
-    },
+  // cwd 必须是已注册 workspace（WORKSPACE_NOT_FOUND → 先 workspace.add）
+  const addResult = await client.workspace.add(PLUGIN_DIR)
+  console.log('workspace.add:', JSON.stringify(addResult).slice(0, 150))
+  // session.new 不接受 onPermissionRequest（仅 load 支持）：new 后显式注册审批 handler
+  const session = await client.session.new({ cwd: PLUGIN_DIR })
+  session.onPermissionRequest(async (request) => {
+    approvals.push(request)
+    console.log('权限审批请求:', JSON.stringify(request).slice(0, 200))
+    return { optionId: request.options.find((o) => o.kind === 'allow_once')?.optionId ?? request.options[0].optionId }
   })
-  await session.attach()
 
   const latestToolJSON = (matches) => {
     for (const request of [...provider.requests].reverse()) {
       for (const message of [...request.messages].reverse()) {
         if (message.role !== 'tool' || typeof message.content !== 'string') continue
+        // AGH 给工具结果包 <untrusted ...> 防注入包装：提取首尾大括号之间的 JSON
+        const start = message.content.indexOf('{')
+        const end = message.content.lastIndexOf('}')
+        if (start === -1 || end <= start) continue
         try {
-          const data = JSON.parse(message.content)
+          const data = JSON.parse(message.content.slice(start, end + 1))
           if (matches(data)) return data
         } catch {}
       }
@@ -205,7 +220,18 @@ try {
       mock: true,
     },
   })
-  await session.prompt('最后运行 thesis_review 全流程评卷（mock 演示模式）', { signal: AbortSignal.timeout(120000) })
+  await session.prompt('最后运行 thesis_review 全流程评卷（mock 演示模式）', { signal: AbortSignal.timeout(120000) }).catch((e) => {
+    console.error('prompt 异常:', e.message)
+  })
+  await new Promise((d) => setTimeout(d, 2000))
+  const lastMsgs = provider.requests.at(-1)?.messages ?? []
+  const toolMsgs = lastMsgs.filter((m) => m.role === 'tool')
+  console.log(
+    '诊断: prompts=', provider.requests.length,
+    'approvals=', approvals.length,
+    '最后请求 tool 消息数=', toolMsgs.length,
+    '最后 tool 内容=', (toolMsgs.at(-1)?.content ?? '').slice(0, 200),
+  )
   const review = latestToolJSON((d) => 'report_id' in d && 'final_score' in d)
   assert.ok(review.gate_passed === true)
   assert.ok(review.panels.length === 4)
@@ -242,10 +268,13 @@ try {
   } catch {}
   if (client) await client.close().catch(() => {})
   await provider?.close().catch(() => {})
-  try {
-    await run(['daemon', 'stop'])
-    console.log('daemon stopped')
-  } catch (e) {
-    console.error(`daemon stop: ${e.message}`)
+  // daemon 保留运行（复用实例模式）；需要彻底清理时：export AGH_HOME=... && agnes daemon stop
+  if (!process.env.KEEP_DAEMON) {
+    try {
+      await run(['daemon', 'stop'])
+      console.log('daemon stopped')
+    } catch (e) {
+      console.error(`daemon stop: ${e.message}`)
+    }
   }
 }

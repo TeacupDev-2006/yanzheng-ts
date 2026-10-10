@@ -1,0 +1,103 @@
+{
+  "steps": [
+    {
+      "name": "daemon 冷启动（隔离 AGH_HOME）",
+      "detail": "D:\\ZCode\\agh-home"
+    },
+    {
+      "name": "SDK 连接 daemon（管道+身份校验）",
+      "detail": "\\\\.\\pipe\\agnes-ddd207b6d5dfaede"
+    },
+    {
+      "name": "插件安装/信任/启用",
+      "detail": "@yanzheng/agh-plugin@0.6.0 integrity=sha256-3c8e593896b16…"
+    },
+    {
+      "name": "package status: actual=running",
+      "detail": "@agnes/document-reader@0.1.2 desired=enabled actual=running trusted=true\n@agnes/mcp-helper@0.1.0 desired=enabled actual=running trusted=true\n@agnes/plugin-helper@0.1.1 desired=enabled actual=running trusted=true\n@agnes/skill-helper@0.1.1 desired=enabled actual=running trusted=true\n@yanzheng/agh-plugin@0.6.0 desired=enabled actual=running trusted=true"
+    },
+    {
+      "name": "回环 provider 夹具接入（无真实模型账号）",
+      "detail": "model=deepseek-flash"
+    },
+    {
+      "name": "① thesis_gate 经 daemon 真实执行",
+      "detail": "word_count=1267 passed=true dup=0"
+    },
+    {
+      "name": "② thesis_sections 经 daemon 真实执行",
+      "detail": "count=19"
+    },
+    {
+      "name": "③ thesis_review 经 daemon 真实执行（含审批流）",
+      "detail": "report_id=ba48428adeac score=71 vetoed=true"
+    },
+    {
+      "name": "权限审批流验证",
+      "detail": "approvals=1"
+    },
+    {
+      "name": "执行记录导出",
+      "detail": "AGH执行记录.jsonl（67 行含工具调用）/ AGH执行记录.html，sessionId=agnes:local:local-dev:cli:workspace:248e7795f05d4767"
+    }
+  ],
+  "package": {
+    "id": "@yanzheng/agh-plugin",
+    "version": "0.6.0",
+    "integrity": "sha256-3c8e593896b162637c78bffdd8946da3ed27d63d5e0842e69953b6afcb8342a5",
+    "capabilityHash": "5f073de53b7808aba3b35f81e4c69af9a84f91d77097ebe291152470d31b63b0",
+    "contributions": []
+  },
+  "packageStatus": "@agnes/document-reader@0.1.2 desired=enabled actual=running trusted=true\n@agnes/mcp-helper@0.1.0 desired=enabled actual=running trusted=true\n@agnes/plugin-helper@0.1.1 desired=enabled actual=running trusted=true\n@agnes/skill-helper@0.1.1 desired=enabled actual=running trusted=true\n@yanzheng/agh-plugin@0.6.0 desired=enabled actual=running trusted=true",
+  "review": {
+    "report_id": "ba48428adeac",
+    "mode": "mock",
+    "gate_passed": true,
+    "word_count": 1267,
+    "duplication_rate": 0,
+    "final_score": 71,
+    "passed": false,
+    "vetoed": true,
+    "veto_reasons": [
+      "摘要与实验章节数据矛盾（95.2% vs 89.3%），证据定位明确",
+      "参考文献[2]经 Crossref 检索无命中且标题查无实据"
+    ],
+    "panels": [
+      {
+        "panel": "内容审题团",
+        "score": 25.3,
+        "max": 40
+      },
+      {
+        "panel": "结构逻辑团",
+        "score": 22.3,
+        "max": 30
+      },
+      {
+        "panel": "语言表达团",
+        "score": 11.7,
+        "max": 15
+      },
+      {
+        "panel": "规范核查团",
+        "score": 11.7,
+        "max": 15
+      }
+    ],
+    "fraud_findings": 3,
+    "revision_roadmap": 15,
+    "report_path": "D:\\ZCode\\2026年江苏省AI+科学与工程创新实践黑客松 TS重构\\docs\\AGH评卷报告.html",
+    "usage_summary": {
+      "elapsed_seconds": 0,
+      "models": {},
+      "config": {
+        "judges_limit": null,
+        "arbitration_enabled": true,
+        "panels": 4,
+        "judges": 13
+      }
+    }
+  },
+  "sessionId": "agnes:local:local-dev:cli:workspace:248e7795f05d4767",
+  "ok": true
+}

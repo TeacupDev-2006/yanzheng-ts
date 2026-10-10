@@ -1,6 +1,44 @@
 # AGH 底座接入状态（TS 重构版）
 
-> 更新：2026-10-06。对应规程 3.1/3.2「AGH 闭环」要求（评审权重 20 分）。
+> 更新：2026-10-10。**AGH 闭环已全部打通 ✅**（规程 3.1/3.2 要求的 ≥3 连续步骤 + 执行记录均已产出）。
+
+## 闭环验证记录（2026-10-10 实测通过）
+
+`scripts/agh-e2e.mjs` 在真实 AGH daemon 上完成全流程：
+
+```
+STEP OK  daemon 冷启动（隔离 AGH_HOME）
+STEP OK  SDK 连接 daemon（命名管道 + 服务端身份校验）
+STEP OK  插件安装/信任/启用 — @yanzheng/agh-plugin@0.6.0
+STEP OK  package status — desired=enabled actual=running trusted=true
+STEP OK  回环 provider 夹具接入（官方验收机制，无真实模型账号）
+STEP OK  ① thesis_gate 经 daemon 真实执行 — word_count=1267 passed=true（金标一致）
+STEP OK  ② thesis_sections 经 daemon 真实执行 — count=19
+STEP OK  ③ thesis_review 经 daemon 真实执行（含审批流） — report_id=ba48428adeac score=71 vetoed=true
+STEP OK  权限审批流验证 — approvals=1
+STEP OK  执行记录导出 — AGH执行记录.jsonl（67 行含工具调用）/ .html
+=== AGH 闭环验证全部通过 ===
+```
+
+证据文件：`docs/AGH执行记录.jsonl`（原生 envelope）、`docs/AGH执行记录.html`（人工核查版）、
+`docs/AGH执行记录.验证摘要.json`、`docs/AGH评卷报告.html`（daemon 内真实执行的评卷产物）。
+
+## Windows 原生构建实录（已解决）
+
+阻塞与解法（供复现）：
+1. `AGNES_NODE_HEADERS=D:/ZCode/node-headers/24.21.0`（npmmirror 下载 headers+node.lib）
+2. VS C++ Build Tools 安装后：`pnpm --filter @agnes/system-node build:native`（MSVC 编译 agnes-system.node）
+3. `pnpm --filter @agnes/cli build:local` → `packages/cli/dist/local/agnes.mjs`
+4. **ACL 坑**：daemon 私有目录校验要求 AGH_HOME 的 DACL 只含当前用户/SYSTEM——`icacls D:\ZCode\agh-home /inheritance:r /grant:r "lk202:(OI)(CI)F" /grant:r "SYSTEM:(OI)(CI)F"`
+5. **SDK 管道坑**：Windows 命名管线必须带 `serverIdentity:{pid, processStartId}`（owner.json 提供）
+6. **file: 来源坑**：相对解析根是 `$AGH_HOME/profiles/<profile>/`，插件副本须放入该处
+7. 会话：`client.workspace.add(cwd)` 后 `client.session.new({cwd})`；审批 handler 在 new 后注册（仅 load 支持参数式）
+
+## 待办（可选增强）
+
+- 用赛事发放的 **Agnes key** 重跑闭环（把回环 provider 换成真实 Agnes 端点）——证据等级更高
+- 真实 OpenReview 样本的实验①分布结论（框架已就绪）
+
 
 ## 已完成 ✅
 

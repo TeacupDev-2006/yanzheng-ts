@@ -21,6 +21,5 @@ demo_*.pptx
 真实*.pptx
 
 # AGH 执行记录（闭环运行时的导出产物）
-docs/AGH执行记录*
 
 .zcodeignore
