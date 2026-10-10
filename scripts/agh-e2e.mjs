@@ -142,20 +142,42 @@ try {
   assert.match(statusOut, new RegExp(`${PLUGIN_ID.replace(/@/g, '\\@')}@[^\\n]+desired=enabled actual=running trusted=true`))
   step('package status: actual=running', statusOut)
 
-  // ---------- 3. 回环 provider 夹具 + 会话 ----------
-  const catalogue = await client.config.test({ providerId: 'deepseek' })
-  const model = catalogue.models[0]?.id
-  assert.ok(model, 'fixture catalogue model')
-  provider = await startProviderFixture('研证工具链演示完成。', undefined, model)
-  const current = await client.config.get()
-  await client.config.save({
-    providerId: 'deepseek',
-    baseUrl: provider.baseUrl,
-    apiKey: provider.apiKey,
-    model,
-    expectedRevision: current.revision,
-  })
-  step('回环 provider 夹具接入（无真实模型账号）', `model=${model}`)
+  // ---------- 3. 模型接入：AGNES_REAL=1 用赛事真实端点，否则回环夹具 ----------
+  const realMode = process.env.AGNES_REAL === '1'
+  let model
+  if (realMode) {
+    // 真实模式：走 AGH 内置 agnes-ai provider（官方端点/模型目录），key 经环境变量传入
+    model = process.env.YANZHENG_MODEL_JUDGE || 'agnes-3.0-flash'
+    const apiKey = process.env.AGNES_API_KEY || process.env.YANZHENG_API_KEY
+    assert.ok(apiKey, 'AGNES_REAL=1 需要 AGNES_API_KEY/YANZHENG_API_KEY')
+    const catalogue = await client.config.test({ providerId: 'agnes-ai' })
+    assert.ok(
+      (catalogue.models ?? []).some((m) => m.id === model),
+      `catalogue 缺少模型 ${model}：${JSON.stringify(catalogue.models).slice(0, 200)}`,
+    )
+    const current = await client.config.get()
+    await client.config.save({
+      providerId: 'agnes-ai',
+      apiKey,
+      model,
+      expectedRevision: current.revision,
+    })
+    step('真实模型端点接入（Agnes）', `model=${model}`)
+  } else {
+    const catalogue = await client.config.test({ providerId: 'deepseek' })
+    model = catalogue.models[0]?.id
+    assert.ok(model, 'fixture catalogue model')
+    provider = await startProviderFixture('研证工具链演示完成。', undefined, model)
+    const current = await client.config.get()
+    await client.config.save({
+      providerId: 'deepseek',
+      baseUrl: provider.baseUrl,
+      apiKey: provider.apiKey,
+      model,
+      expectedRevision: current.revision,
+    })
+    step('回环 provider 夹具接入（无真实模型账号）', `model=${model}`)
+  }
 
   const approvals = []
   // cwd 必须是已注册 workspace（WORKSPACE_NOT_FOUND → 先 workspace.add）
@@ -187,62 +209,78 @@ try {
   }
 
   const demoText = await readFile(join(REPO, 'testdata/demo_paper.txt'), 'utf-8')
-  const corpus1 = await readFile(join(REPO, 'testdata/corpus/source1.txt'), 'utf-8')
-  const corpus2 = await readFile(join(REPO, 'testdata/corpus/source2.txt'), 'utf-8')
 
-  // ---------- 4. 步骤① thesis_gate（确定性门检） ----------
-  provider.queueTool({
-    name: 'thesis_gate',
-    args: { text: demoText, minWords: 1000, corpus: [{ name: 'source1.txt', text: corpus1 }, { name: 'source2.txt', text: corpus2 }] },
-  })
-  await session.prompt('请用 thesis_gate 对论文做硬性门检（演示门槛 1000 字）', { signal: AbortSignal.timeout(60000) })
-  const gate = latestToolJSON((d) => typeof d.passed === 'boolean' && 'word_count' in d)
-  assert.equal(gate.word_count, 1267) // 与 Python 金标一致
-  assert.equal(gate.passed, true)
-  step('① thesis_gate 经 daemon 真实执行', `word_count=${gate.word_count} passed=${gate.passed} dup=${gate.duplication_rate}`)
+  if (realMode) {
+    // ---------- 真实模型模式：Agnes 自主规划，连续调用三个工具 ----------
+    const probe = join(PLUGIN_DIR, 'probe-paper.txt')
+    await writeFile(probe, demoText, 'utf-8')
+    const outPath = join(REPO, 'docs', 'AGH评卷报告.html')
+    await session
+      .prompt(
+        `请用研证评卷工具链完整评审论文 ${probe}：` +
+          `第一步调用 thesis_gate 做硬性门检（minWords 1000）；` +
+          `第二步调用 thesis_sections 切分章节；` +
+          `第三步调用 thesis_review 全流程评卷（参数 paperPath=${probe}，outPath=${outPath}，` +
+          `minWords 1000，corpusDir=${join(REPO, 'testdata', 'corpus')}），完成后告诉我总分。`,
+        { signal: AbortSignal.timeout(900000) },
+      )
+      .catch((e) => console.error('prompt 异常(继续断言产物):', e.message))
+    await new Promise((d) => setTimeout(d, 3000))
+    const reportHtml = await readFile(outPath, 'utf-8')
+    assert.ok(reportHtml.includes('研证 · 评卷纪要'), 'AGH 内真实执行的评卷报告已生成')
+    const reportId = reportHtml.match(/report_id ([0-9a-f]{12})/)?.[1] ?? 'n/a'
+    const score = reportHtml.match(/class="num"[^>]*>([\d.]+)</)?.[1] ?? '?'
+    assert.ok(approvals.length >= 1, 'thesis_review 应触发权限审批')
+    step('①②③ gate/sections/review 经 daemon 真实执行（Agnes 自主规划+审批流）',
+      `report_id=${reportId} score=${score} approvals=${approvals.length}`)
+    const sessionId = (await client.session.list({})).items[0]?.sessionId
+    assert.ok(sessionId, 'sessionId')
+    evidence.sessionId = sessionId
+  } else {
+    // ---------- 回环夹具模式：注入工具调用序列 ----------
+    provider.queueTool({
+      name: 'thesis_gate',
+      args: { text: demoText, minWords: 1000, corpus: [{ name: 'source1.txt', text: corpus1 }, { name: 'source2.txt', text: corpus2 }] },
+    })
+    await session.prompt('请用 thesis_gate 对论文做硬性门检（演示门槛 1000 字）', { signal: AbortSignal.timeout(60000) })
+    const gate = latestToolJSON((d) => typeof d.passed === 'boolean' && 'word_count' in d)
+    assert.equal(gate.word_count, 1267) // 与 Python 金标一致
+    assert.equal(gate.passed, true)
+    step('① thesis_gate 经 daemon 真实执行', `word_count=${gate.word_count} passed=${gate.passed} dup=${gate.duplication_rate}`)
 
-  // ---------- 5. 步骤② thesis_sections（章节切分） ----------
-  provider.queueTool({ name: 'thesis_sections', args: { text: demoText, bodyCap: 200 } })
-  await session.prompt('接着用 thesis_sections 切分章节', { signal: AbortSignal.timeout(60000) })
-  const sections = latestToolJSON((d) => Array.isArray(d.sections))
-  assert.ok(sections.count >= 1)
-  step('② thesis_sections 经 daemon 真实执行', `count=${sections.count}`)
+    provider.queueTool({ name: 'thesis_sections', args: { text: demoText, bodyCap: 200 } })
+    await session.prompt('接着用 thesis_sections 切分章节', { signal: AbortSignal.timeout(60000) })
+    const sections = latestToolJSON((d) => Array.isArray(d.sections))
+    assert.ok(sections.count >= 1)
+    step('② thesis_sections 经 daemon 真实执行', `count=${sections.count}`)
 
-  // ---------- 6. 步骤③ thesis_review（全流程评卷，需审批 → 自动允许） ----------
-  const outPath = join(REPO, 'docs', 'AGH评卷报告.html')
-  provider.queueTool({
-    name: 'thesis_review',
-    args: {
-      paperPath: join(REPO, 'testdata/demo_paper.txt'),
-      outPath,
-      minWords: 1000,
-      corpusDir: join(REPO, 'testdata/corpus'),
-      mock: true,
-    },
-  })
-  await session.prompt('最后运行 thesis_review 全流程评卷（mock 演示模式）', { signal: AbortSignal.timeout(120000) }).catch((e) => {
-    console.error('prompt 异常:', e.message)
-  })
-  await new Promise((d) => setTimeout(d, 2000))
-  const lastMsgs = provider.requests.at(-1)?.messages ?? []
-  const toolMsgs = lastMsgs.filter((m) => m.role === 'tool')
-  console.log(
-    '诊断: prompts=', provider.requests.length,
-    'approvals=', approvals.length,
-    '最后请求 tool 消息数=', toolMsgs.length,
-    '最后 tool 内容=', (toolMsgs.at(-1)?.content ?? '').slice(0, 200),
-  )
-  const review = latestToolJSON((d) => 'report_id' in d && 'final_score' in d)
-  assert.ok(review.gate_passed === true)
-  assert.ok(review.panels.length === 4)
-  evidence.review = review
-  step('③ thesis_review 经 daemon 真实执行（含审批流）', `report_id=${review.report_id} score=${review.final_score} vetoed=${review.vetoed}`)
-  assert.ok(approvals.length >= 1, 'thesis_review 应触发权限审批')
-  step('权限审批流验证', `approvals=${approvals.length}`)
+    const outPath = join(REPO, 'docs', 'AGH评卷报告.html')
+    provider.queueTool({
+      name: 'thesis_review',
+      args: {
+        paperPath: join(REPO, 'testdata/demo_paper.txt'),
+        outPath,
+        minWords: 1000,
+        corpusDir: join(REPO, 'testdata/corpus'),
+        mock: true,
+      },
+    })
+    await session.prompt('最后运行 thesis_review 全流程评卷（mock 演示模式）', { signal: AbortSignal.timeout(120000) }).catch((e) => {
+      console.error('prompt 异常:', e.message)
+    })
+    await new Promise((d) => setTimeout(d, 2000))
+    const review = latestToolJSON((d) => 'report_id' in d && 'final_score' in d)
+    assert.ok(review.gate_passed === true)
+    assert.ok(review.panels.length === 4)
+    evidence.review = review
+    step('③ thesis_review 经 daemon 真实执行（含审批流）', `report_id=${review.report_id} score=${review.final_score} vetoed=${review.vetoed}`)
+    assert.ok(approvals.length >= 1, 'thesis_review 应触发权限审批')
+    step('权限审批流验证', `approvals=${approvals.length}`)
 
-  const sessionId = (await client.session.list({})).items[0]?.sessionId
-  assert.ok(sessionId, 'sessionId')
-  evidence.sessionId = sessionId
+    const sessionId = (await client.session.list({})).items[0]?.sessionId
+    assert.ok(sessionId, 'sessionId')
+    evidence.sessionId = sessionId
+  }
 
   // ---------- 7. 导出执行记录 ----------
   await session.close?.().catch(() => {})

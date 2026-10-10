@@ -110,6 +110,23 @@ workspace 注册 / 审批 handler 时机 / config revision）实录见上文「�
 
 日常复跑闭环：`scripts\run-agh-e2e.cmd`（CMD 一键，幂等）。
 
+## 真实模型模式（AGNES_REAL=1，已实现，待 AGH 上游修复后复跑）
+
+`scripts\agh-e2e.mjs` 支持 `AGNES_REAL=1`：跳过回环夹具，经 AGH 内置 `agnes-ai` provider 接入
+赛事真实端点（`https://api.agnes-ai.cn/v1`，key 经环境变量传入不落脚本），AI 助手自主规划
+连续调用三工具、评审用真实模型双重执行。
+
+当前状态（2026-10-10）：端点/模型目录校验通过、config 保存成功，但 daemon 内模型调用报
+`TURN_ERROR / TRANSPORT / status=?`（AGH 内部 agnes-ai 调用栈问题——同机同 key 的
+CLI/Web/裸 fetch 全部 200 正常，含流式；AGH 为 developer preview）。已具备反馈条件：
+携参赛编号 U297 在参赛群向技术客服反馈（勿发 key）。AGH 上游修复后 `run-agh-e2e.cmd`
+前 `set AGNES_REAL=1` 即可复跑真实模型闭环。
+
+当前有效证据组合（均真实）：
+1. AGH 闭环 + 执行记录（回环 provider，官方验收机制）✅
+2. Agnes 模型真实评卷：`docs/Agnes真实评卷报告.html`（agnes-3.0-flash 18 次调用 / 87,941
+   tokens / 404.8s / 59.7 分否决——与 DeepSeek 独立结论互相印证）✅
+
 ## 合规证据对照（规程 3.1/3.2）——**全部达成 ✅**
 
 | 要求 | 状态 | 证据 |
