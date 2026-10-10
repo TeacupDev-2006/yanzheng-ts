@@ -48,14 +48,17 @@ scripts\run-agh-e2e.cmd
 脚本自动设置 AGH_HOME / AGNES_PROFILE / AGNES_NODE_HEADERS 并经 tsx 运行闭环
 （SDK 直连 → 插件幂等装启 → 3 步工具真实执行含审批 → 执行记录导出）。
 
-手动分步版（等价，一次性构建时用；bash 风格仅示意，CMD 需换 `set` 与反斜杠）：
+手动分步版（**CMD 纯净版**：以下代码块可直接整段粘贴；不要在 CMD 里使用 `#` 注释与 `export`）：
 
-```bash
-export AGNES_NODE_HEADERS=D:/ZCode/node-headers/24.21.0
-cd D:\ZCode\agnes-harness
-pnpm --filter @agnes/system-node build:native   # MSVC 编译 agnes-system.node（已完成）
-pnpm --filter @agnes/cli build:local            # 产出 packages/cli/dist/local/agnes.mjs（已完成）
+```bat
+set "AGNES_NODE_HEADERS=D:\ZCode\node-headers\24.21.0"
+cd /d D:\ZCode\agnes-harness
+pnpm --filter @agnes/system-node build:native
+pnpm --filter @agnes/cli build:local
 ```
+
+> 再次强调：以上两步构建**已经完成**（产物在 packages\system-node\dist\native\ 与
+> packages\cli\dist\local\），日常不需要重跑；复跑闭环只用 `scripts\run-agh-e2e.cmd`。
 
 运行与验证证据（第八节）：
 - 正常：`docs/AGH执行记录.jsonl`（daemon 原生 envelope，67+ 行工具调用）
