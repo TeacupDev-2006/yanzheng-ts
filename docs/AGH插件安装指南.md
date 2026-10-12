@@ -36,13 +36,12 @@
 ```bat
 set "AGH_HOME=D:\ZCode\agh-home"
 set "AGNES_PROFILE=local-dev"
-set "AGH=packages\cli\dist\local\agnes.mjs"
 
-node %AGH% package inspect file:./yanzheng-thesis-review
-REM   ↑ 展示来源/版本/完整性摘要，提示 Install ... ? [y/N] 时输入 y 回车
-node %AGH% package trust @yanzheng/agh-plugin <integrity> <capabilityHash>
-node %AGH% package enable @yanzheng/agh-plugin
-node %AGH% package status
+node packages\cli\dist\local\agnes.mjs package inspect file:./yanzheng-thesis-review
+REM   展示来源/版本/完整性摘要，提示 Install ... ? [y/N] 时输入 y 回车
+node packages\cli\dist\local\agnes.mjs package trust @yanzheng/agh-plugin <integrity> <capabilityHash>
+node packages\cli\dist\local\agnes.mjs package enable @yanzheng/agh-plugin
+node packages\cli\dist\local\agnes.mjs package status
 ```
 
 - trust 所需的两个哈希：从 `$AGH_HOME\data\daemon\package-operations\operations.json` 的
@@ -56,26 +55,26 @@ node %AGH% package status
 
 ## 安装后验证（三种方式通用）
 
-1. `node %AGH% package status` → 研证插件行含 `actual=running trusted=true`
+1. `node packages\cli\dist\local\agnes.mjs package status` → 研证插件行含 `actual=running trusted=true`
 2. AGH Web 界面 → Settings → Plugin management → 列表中有 `@yanzheng/agh-plugin 0.6.0` 且开关开启
 3. AGH 会话输入"请用研证工具评审这篇论文"→ AI 助手自主调用 `thesis_gate → thesis_sections
    → thesis_review`，`thesis_review` 执行前弹出权限审批
-4. 导出执行记录：`node %AGH% export <sessionId> --format agnes -o 执行记录.jsonl`
+4. 导出执行记录：`node packages\cli\dist\local\agnes.mjs export <sessionId> --format agnes -o 执行记录.jsonl`
 
 ## 卸载 / 更新（三级，全部实测）
 
 ### 1. 停用（保留安装与信任，随时可再启用）
 
 ```bat
-node %AGH% package disable @yanzheng/agh-plugin
+node packages\cli\dist\local\agnes.mjs package disable @yanzheng/agh-plugin
 ```
 实测结果：`desired=installed-disabled actual=not-running trusted=true`（工具立刻从会话撤下）。
-重新启用：`node %AGH% package enable @yanzheng/agh-plugin`。
+重新启用：`node packages\cli\dist\local\agnes.mjs package enable @yanzheng/agh-plugin`。
 
 ### 2. 彻底卸载（连快照一起移除）
 
 ```bat
-node %AGH% package remove @yanzheng/agh-plugin
+node packages\cli\dist\local\agnes.mjs package remove @yanzheng/agh-plugin
 ```
 实测结果：`remove completed (100%)`，package status 不再列出。
 重装：再走一遍 inspect/add/trust/enable（或直接跑 `scripts\run-agh-e2e.cmd` 一键装回）。
