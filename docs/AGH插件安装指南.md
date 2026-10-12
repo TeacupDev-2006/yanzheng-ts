@@ -62,8 +62,43 @@ node %AGH% package status
    → thesis_review`，`thesis_review` 执行前弹出权限审批
 4. 导出执行记录：`node %AGH% export <sessionId> --format agnes -o 执行记录.jsonl`
 
-## 卸载 / 更新
+## 卸载 / 更新（三级，全部实测）
 
-- 禁用：Web 开关关闭，或 `node %AGH% package disable @yanzheng/agh-plugin`
-- 删除：`node %AGH% package remove @yanzheng/agh-plugin`
-- 更新新版本：修改源目录内容后，Web"从新来源更新"或重跑 inspect/install（integrity 变化需重新 trust）
+### 1. 停用（保留安装与信任，随时可再启用）
+
+```bat
+node %AGH% package disable @yanzheng/agh-plugin
+```
+实测结果：`desired=installed-disabled actual=not-running trusted=true`（工具立刻从会话撤下）。
+重新启用：`node %AGH% package enable @yanzheng/agh-plugin`。
+
+### 2. 彻底卸载（连快照一起移除）
+
+```bat
+node %AGH% package remove @yanzheng/agh-plugin
+```
+实测结果：`remove completed (100%)`，package status 不再列出。
+重装：再走一遍 inspect/add/trust/enable（或直接跑 `scripts\run-agh-e2e.cmd` 一键装回）。
+
+### 3. 停止 AGH 服务 / 彻底清理
+
+```bat
+REM 停 daemon（研证与 AGH Web 界面都会随之不可用）
+set "AGH_HOME=D:\ZCode\agh-home"
+set "AGNES_PROFILE=local-dev"
+node packages\cli\dist\local\agnes.mjs daemon stop
+
+REM Web 服务（4177）是独立进程：直接关其 CMD 窗口，或
+taskkill /F /PID <serve进程PID>
+```
+
+彻底清理测试实例（删除会话/配置/已装插件，**不影响 agnes-harness 仓库本体**）：
+删除 `D:\ZCode\agh-home` 目录即可；下次 `run-agh-e2e.cmd` 会全新重建。
+若提示文件被占用：先 daemon stop 并结束残留 node 进程（tasklist 查 PID），稍候再删。
+
+### 卸载后重装提示
+
+- CMD 手动 `package add` 会弹交互确认（输 y）——非 TTY 管道下会静默取消（退出码仍 0，别被骗）；
+  想免交互就用 Web 界面（方式 A）或 `run-agh-e2e.cmd`（SDK 无确认门）
+- 卸载后再装时 `package trust` 需要新的 integrity/capabilityHash（来源内容变了哈希就变），
+  从 operations.json 的 preview 或 Web 安装预览里取

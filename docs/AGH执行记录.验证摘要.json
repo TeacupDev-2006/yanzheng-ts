@@ -17,8 +17,8 @@
       "detail": "@agnes/document-reader@0.1.2 desired=enabled actual=running trusted=true\n@agnes/mcp-helper@0.1.0 desired=enabled actual=running trusted=true\n@agnes/plugin-helper@0.1.1 desired=enabled actual=running trusted=true\n@agnes/skill-helper@0.1.1 desired=enabled actual=running trusted=true\n@yanzheng/agh-plugin@0.6.0 desired=enabled actual=running trusted=true"
     },
     {
-      "name": "真实模型端点接入（Agnes）",
-      "detail": "model=agnes-3.0-flash"
+      "name": "回环 provider 夹具接入（无真实模型账号）",
+      "detail": "model=deepseek-flash"
     }
   ],
   "package": {
@@ -30,5 +30,5 @@
   },
   "packageStatus": "@agnes/document-reader@0.1.2 desired=enabled actual=running trusted=true\n@agnes/mcp-helper@0.1.0 desired=enabled actual=running trusted=true\n@agnes/plugin-helper@0.1.1 desired=enabled actual=running trusted=true\n@agnes/skill-helper@0.1.1 desired=enabled actual=running trusted=true\n@yanzheng/agh-plugin@0.6.0 desired=enabled actual=running trusted=true",
   "ok": false,
-  "error": "AssertionError: thesis_review 应触发权限审批"
+  "error": "ReferenceError: corpus1 is not defined"
 }
