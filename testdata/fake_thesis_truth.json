@@ -1,0 +1,45 @@
+{
+  "paper": "fake_thesis.txt",
+  "generatedAt": "2026-10-12T08:50:59.764Z",
+  "wordCountTarget": "≥10000（过门检）",
+  "frauds": [
+    {
+      "id": "F1",
+      "type": "数据不一致",
+      "severity": "严重",
+      "location": "摘要/6.1 vs 5.2",
+      "detail": "摘要与结论均称分类准确率 96.8%，实验章节 5.2 实测为 89.3%，同一指标两处矛盾",
+      "expectDetect": "data_consistency skill 确定性检出 + 作假审查评卷员/LLM 复核"
+    },
+    {
+      "id": "F2",
+      "type": "数据不一致",
+      "severity": "严重",
+      "location": "4.3 vs 5.4",
+      "detail": "4.3 节消融实验称完整系统准确率 91.2%，5.4 节引用同一消融为 87.6%（且各模块贡献之和与总数不符）",
+      "expectDetect": "data_consistency skill + LLM 复核"
+    },
+    {
+      "id": "F3",
+      "type": "引用捏造/重复著录",
+      "severity": "较重",
+      "location": "参考文献 [3] 与 [5]",
+      "detail": "[3]《智能垃圾分拣系统关键技术研究》发表于《计算机学报》2019 年第 99 卷第 1 期——该刊当年实际卷期为第 42-52 卷，卷号不存在；[5] 与 [3] 为同一文献的重复著录",
+      "expectDetect": "citation_check（在线模式 Crossref 无命中 → not_found）+ 引用规范评卷员"
+    },
+    {
+      "id": "F4",
+      "type": "方法与结果矛盾",
+      "severity": "严重",
+      "location": "3.1 vs 第四章/第五章",
+      "detail": "3.1 节明确技术路线为\"传统图像处理 + 支持向量机，不涉及深度学习\"，但第四章消融、第五章实验与对比讨论全部为卷积神经网络等深度学习内容（5.6 还出现\"深度学习对照实验\"），方法与结果严重脱节",
+      "expectDetect": "作假审查评卷员（LLM，需通读前后章）+ 总仲裁复核"
+    }
+  ],
+  "gateExpect": {
+    "wordCountPass": true,
+    "dupThresholdPass": true,
+    "formatPass": true,
+    "note": "设计目标：过门检进入评卷环节，作假由评卷环节检出（与门检打回路径形成互补演示）"
+  }
+}

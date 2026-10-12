@@ -32,6 +32,7 @@ export async function main(argv: string[]): Promise<number> {
         'min-words': { type: 'string', default: '10000' },
         ppt: { type: 'string' },
         retractions: { type: 'string' },
+        concurrency: { type: 'string' },
         help: { type: 'boolean', short: 'h', default: false },
       },
       allowPositionals: true,
@@ -83,6 +84,7 @@ export async function main(argv: string[]): Promise<number> {
     apiKey,
     minWords,
     retractions,
+    concurrency: args.values.concurrency ? Number.parseInt(args.values.concurrency, 10) || undefined : undefined,
   })
 
   const g = report.gate

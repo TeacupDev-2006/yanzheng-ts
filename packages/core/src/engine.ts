@@ -64,6 +64,8 @@ export interface ReviewOptions {
   retractions?: Map<string, RetractionRecord>
   /** 自定义评审团编制（缺省为标准 4 团 13 员）；经 normalizePanels 校验 */
   panels?: PanelSpec[]
+  /** 评卷员并发数（默认 13；对限流严格的端点可降至 1-3） */
+  concurrency?: number
   /** 消融开关：每团只取前 N 名评卷员（null=全部） */
   judgesLimit?: number | null
   /** 消融开关：False 时跳过两级仲裁，直接均值合成 */
@@ -133,9 +135,29 @@ export async function reviewPaper(opts: ReviewOptions): Promise<ReviewReport> {
   const judges = judgeItems.map(({ panel, spec }) => ({ panel, judge: new BaseJudge(spec, client) }))
 
   const sheetsByPanel = new Map<string, ScoreSheet[]>(panels.map((p) => [p.panelId, []]))
-  const results = await mapWithConcurrency(judges, 13, ({ panel, judge }) =>
-    judge.review(fullText, fullScoreFor(panel), context).then((sheet) => ({ panel, sheet })),
-  )
+  const results = await mapWithConcurrency(judges, opts.concurrency ?? 13, async ({ panel, judge }) => {
+    try {
+      const sheet = await judge.review(fullText, fullScoreFor(panel), context)
+      return { panel, sheet }
+    } catch (exc) {
+      // 评卷员级容错：单个评卷员失败（网络/限流/输出异常）不拖垮整场评卷，
+      // 降级为低置信占位评分表并在证据中注明，后续可人工复核
+      console.error(`评卷员 ${judge.spec.judgeId} 执行失败，降级处理:`, exc instanceof Error ? exc.message : exc)
+      const sheet: ScoreSheet = {
+        judgeId: judge.spec.judgeId,
+        judgeName: judge.spec.name,
+        panel: panel.panelId,
+        score: 0,
+        maxScore: fullScoreFor(panel),
+        deductions: [],
+        evidence: [`评卷员执行异常，本次评分作废待人工复核: ${String(exc instanceof Error ? exc.message : exc).slice(0, 120)}`],
+        confidence: 0,
+        model: 'aborted',
+        rawResponse: '[]',
+      }
+      return { panel, sheet }
+    }
+  })
   for (const { panel, sheet } of results) {
     sheetsByPanel.get(panel.panelId)!.push(sheet)
   }

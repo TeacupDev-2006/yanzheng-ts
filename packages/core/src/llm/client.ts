@@ -89,6 +89,8 @@ export interface LLMClientOptions {
   mock?: boolean
   mockFn?: MockFn | null
   maxRetries?: number
+  /** 重试退避基数毫秒（默认 1500） */
+  backoffBaseMs?: number
   /**
    * 思考开关的请求体风格：
    * - 'deepseek'（默认）：附 thinking={type}（DeepSeek V4 语义，Agnes/自建 DeepSeek 端点适用）
@@ -140,6 +142,8 @@ export class LLMClient {
   private readonly apiKey: string
   private readonly baseUrl: string
   private readonly thinkingStyle: 'deepseek' | 'off'
+  /** 重试退避基数（毫秒）：第 n 次失败后等待 backoffBase * 2^n */
+  readonly backoffBaseMs: number
   readonly usageLog: UsageEntry[] = []
 
   constructor(opts: LLMClientOptions = {}) {
@@ -156,6 +160,7 @@ export class LLMClient {
       opts.baseUrl ?? process.env.YANZHENG_LLM_BASE_URL ?? 'https://api.deepseek.com',
     )
     this.thinkingStyle = opts.thinkingStyle ?? 'deepseek'
+    this.backoffBaseMs = opts.backoffBaseMs ?? 2000
   }
 
   /** 聚合 usage_log → {"<model>": {calls, prompt_tokens, completion_tokens}} */
@@ -233,7 +238,7 @@ export class LLMClient {
           if (exc instanceof LLMError) throw exc
           throw new LLMError(`LLM 调用失败（${model}）: ${String(exc)}`)
         }
-        await sleep(2 ** attempt * 1.5 * 1000)
+        await sleep(this.backoffBaseMs * 2 ** attempt)
       }
     }
     throw new LLMError(`LLM 调用失败（${model}）: ${String(lastErr)}`)
