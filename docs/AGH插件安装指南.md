@@ -17,12 +17,22 @@
 
 ## 方式 A · AGH Web 界面（推荐，全程图形化）
 
-1. 启动 AGH Web（CMD，在 agnes-harness 目录）：
+0. **先起 daemon（关键前置，缺了 serve 会报 `local daemon has no Web capability`）**：
    ```bat
    set "AGH_HOME=D:\ZCode\agh-home"
    set "AGNES_PROFILE=local-dev"
+   node packages\cli\dist\local\agnes.mjs daemon start
+   ```
+   daemon 的 Web 能力由 CLI 启动时自动附加的 `--local-web-addr/--local-web-origin`
+   参数启用（origin 默认 `http://127.0.0.1:4177`），**不是环境变量**。
+   实测踩坑：手动 `node packages\cli\dist\local\daemon.mjs` 直启的 daemon
+   没有这两个参数 → discovery 里没有 `web` 字段 → 之后 `serve` 一律报
+   no Web capability。修复：`agnes.mjs daemon stop` 后改用 `daemon start` 重启。
+1. 启动 AGH Web（CMD，在 agnes-harness 目录，daemon 已在跑）：
+   ```bat
    node packages\cli\dist\local\agnes.mjs serve --port 4177
    ```
+   端口被占（EADDRINUSE 4177）说明 Web 已在运行，直接用浏览器即可。
 2. 浏览器打开 http://127.0.0.1:4177 → 右上 **Settings** → **Plugin management**
 3. 点 **Install from source** → Source type 选 **Local file** →
    Source reference 填 `file:./yanzheng-thesis-review` → **Check source**
