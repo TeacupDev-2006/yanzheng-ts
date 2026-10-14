@@ -85,6 +85,14 @@ node packages\cli\dist\local\agnes.mjs serve --port 4177
 - 会话里让 AI 助手调用 thesis_review 时可加参数 `mock: true` 强制演示模式（不耗 key）
 - AGH 助手（编排层）的模型在 Web 界面 Settings 里配；实测 AGH 内置 deepseek provider
   连通测试会被拒（CONFIG_TEST_FAILED），配 agnes-ai（赛事端点）可通
+- **AGH 单次工具调用默认 120 秒上限会中止真实评卷**（助手见超时会自动改用 mock 重跑，
+  产出演示报告——报告 mode 显示 mock 即此因）。解法：在
+  `D:\ZCode\agnes-harness\packages\code\presets\standard-windows.yaml` 的
+  `extends: standard` 下加（本机已加，daemon 重启生效）：
+  ```yaml
+  tools:
+    timeout_ms: 600000
+  ```
 - 真实评卷耗时参考：DeepSeek 3 并发 × 13 员 ≈ 5–15 分钟/篇
 
 ## 安装后验证（三种方式通用）

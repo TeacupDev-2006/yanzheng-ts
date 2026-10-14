@@ -67,7 +67,8 @@ const t0 = Date.now()
 await session.prompt(
   `请用研证评卷工具对论文 ${PAPER} 做全流程评审：调用 thesis_review（参数 paperPath=${PAPER}，` +
     `outPath=${OUT}，minWords 10000，corpusDir=${join(REPO, 'testdata', 'cor')}pus）。` +
-    `完成后告诉我：评审模式（真实/mock）、总分、是否一票否决及原因。`,
+    `注意：严禁传 mock 参数（保持默认 false 才会走真实 LLM 评卷）；该工具真实评卷需数分钟，` +
+    `超时属正常，请耐心等待勿中断勿重试。完成后告诉我：评审模式（真实/mock）、总分、是否一票否决及原因。`,
   { signal: AbortSignal.timeout(1500000) },
 ).catch((e) => console.error('[prompt 异常，继续断言产物]', e.message))
 console.log(`[4] prompt 完成，耗时 ${Math.round((Date.now() - t0) / 1000)}s，审批数=${approvals.length}`)
