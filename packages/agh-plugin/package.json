@@ -1,6 +1,6 @@
 {
   "name": "@yanzheng/agh-plugin",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "type": "module",
   "description": "研证 · 毕业论文评卷团 — AGH 底座插件：确定性评卷工具链（门检/章节切分/分块查重）+ TS 原生全流程评卷（无需 Python）",
   "license": "MIT",

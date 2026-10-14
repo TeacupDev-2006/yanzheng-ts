@@ -63,6 +63,30 @@ node packages\cli\dist\local\agnes.mjs package status
 `scripts\run-agh-e2e.cmd` 一条命令完成 inspect→install→trust→enable→3 步工具真实执行→
 执行记录导出（SDK 直连 daemon，无需 TTY 确认）。首次环境搭建才需要方式 A/B。
 
+## 真实评卷（可选）：给 daemon 配 LLM（插件 0.6.1+）
+
+`thesis_review` 的 LLM 接入读 **daemon 进程环境变量**：有 `YANZHENG_API_KEY` 则真实评卷，
+无则自动回退确定性 mock 演示模式（mock 时所有"严重级作假疑点→总仲裁复核→一票否决"链路
+不会触发——mock 评卷员不产出严重疑点。要验证作假否决，必须真实评卷）。
+
+```bat
+REM 关键：key 在 daemon start 之前 set（serve 窗口 set 无效——key 是 daemon 进程读的）
+set "AGH_HOME=D:\ZCode\agh-home"
+set "AGNES_PROFILE=local-dev"
+set "YANZHENG_API_KEY=sk-你的key"
+set "YANZHENG_CONCURRENCY=3"       REM 限流端点（DeepSeek 13 并发会 500）降并发，1-3 稳
+node packages\cli\dist\local\agnes.mjs daemon stop
+node packages\cli\dist\local\agnes.mjs daemon start
+node packages\cli\dist\local\agnes.mjs serve --port 4177
+```
+
+- 端点/模型经 `YANZHENG_LLM_BASE_URL` / `YANZHENG_MODEL_JUDGE` / `YANZHENG_MODEL_ARBITER`
+  覆盖；缺省即 DeepSeek 官方（deepseek-flash 评卷 + deepseek-v4-pro 仲裁）
+- 会话里让 AI 助手调用 thesis_review 时可加参数 `mock: true` 强制演示模式（不耗 key）
+- AGH 助手（编排层）的模型在 Web 界面 Settings 里配；实测 AGH 内置 deepseek provider
+  连通测试会被拒（CONFIG_TEST_FAILED），配 agnes-ai（赛事端点）可通
+- 真实评卷耗时参考：DeepSeek 3 并发 × 13 员 ≈ 5–15 分钟/篇
+
 ## 安装后验证（三种方式通用）
 
 1. `node packages\cli\dist\local\agnes.mjs package status` → 研证插件行含 `actual=running trusted=true`

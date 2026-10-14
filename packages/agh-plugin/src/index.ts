@@ -188,14 +188,19 @@ export async function executeReview(args: Record<string, unknown>): Promise<Tool
     ? await readFileText(a.paperPath)
     : await parsePdfText(a.paperPath)
   const corpus = a.corpusDir ? await loadCorpusDir(a.corpusDir) : {}
+  // LLM 接入读 daemon 进程环境：mock=true 强制演示模式；否则 YANZHENG_API_KEY 有则真实评卷、
+  // 无则引擎自动回退 mock。限流端点（如 DeepSeek）可经 YANZHENG_CONCURRENCY 降低评卷员并发。
+  const apiKey = a.mock ? null : (process.env.YANZHENG_API_KEY ?? null)
+  const concurrency = Number.parseInt(process.env.YANZHENG_CONCURRENCY ?? '', 10)
   const report: ReviewReport = await reviewPaper({
     text,
     title: basenameOf(a.paperPath),
     corpus,
     online: a.online ?? false,
     minWords: a.minWords ?? 10000,
-    // mock=true 强制演示模式；否则按 YANZHENG_API_KEY 有无自动判定
-    ...(a.mock ? { apiKey: null, mockFn: demoMockLLM } : {}),
+    ...(a.mock ? { mockFn: demoMockLLM } : {}),
+    apiKey,
+    ...(Number.isInteger(concurrency) && concurrency > 0 ? { concurrency } : {}),
   })
   await writeFileText(a.outPath, renderHtml(report))
   const result: Record<string, unknown> = {
