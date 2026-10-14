@@ -233,9 +233,6 @@ try {
     assert.ok(approvals.length >= 1, 'thesis_review 应触发权限审批')
     step('①②③ gate/sections/review 经 daemon 真实执行（Agnes 自主规划+审批流）',
       `report_id=${reportId} score=${score} approvals=${approvals.length}`)
-    const sessionId = (await client.session.list({})).items[0]?.sessionId
-    assert.ok(sessionId, 'sessionId')
-    evidence.sessionId = sessionId
   } else {
     // ---------- 回环夹具模式：注入工具调用序列 ----------
     provider.queueTool({
@@ -276,11 +273,11 @@ try {
     step('③ thesis_review 经 daemon 真实执行（含审批流）', `report_id=${review.report_id} score=${review.final_score} vetoed=${review.vetoed}`)
     assert.ok(approvals.length >= 1, 'thesis_review 应触发权限审批')
     step('权限审批流验证', `approvals=${approvals.length}`)
-
-    const sessionId = (await client.session.list({})).items[0]?.sessionId
-    assert.ok(sessionId, 'sessionId')
-    evidence.sessionId = sessionId
   }
+
+  const sessionId = (await client.session.list({})).items[0]?.sessionId
+  assert.ok(sessionId, 'sessionId')
+  evidence.sessionId = sessionId
 
   // ---------- 7. 导出执行记录 ----------
   await session.close?.().catch(() => {})

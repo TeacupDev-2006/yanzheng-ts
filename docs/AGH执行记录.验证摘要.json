@@ -17,8 +17,16 @@
       "detail": "@agnes/document-reader@0.1.2 desired=enabled actual=running trusted=true\n@agnes/mcp-helper@0.1.0 desired=enabled actual=running trusted=true\n@agnes/plugin-helper@0.1.1 desired=enabled actual=running trusted=true\n@agnes/skill-helper@0.1.1 desired=enabled actual=running trusted=true\n@yanzheng/agh-plugin@0.6.0 desired=enabled actual=running trusted=true"
     },
     {
-      "name": "回环 provider 夹具接入（无真实模型账号）",
-      "detail": "model=deepseek-flash"
+      "name": "真实模型端点接入（Agnes）",
+      "detail": "model=agnes-3.0-flash"
+    },
+    {
+      "name": "①②③ gate/sections/review 经 daemon 真实执行（Agnes 自主规划+审批流）",
+      "detail": "report_id=20c3b3746652 score=78.0 approvals=1"
+    },
+    {
+      "name": "执行记录导出",
+      "detail": "AGH执行记录.jsonl（118 行含工具调用）/ AGH执行记录.html，sessionId=agnes:local:local-dev:cli:workspace:248e7795f05d4767"
     }
   ],
   "package": {
@@ -29,6 +37,6 @@
     "contributions": []
   },
   "packageStatus": "@agnes/document-reader@0.1.2 desired=enabled actual=running trusted=true\n@agnes/mcp-helper@0.1.0 desired=enabled actual=running trusted=true\n@agnes/plugin-helper@0.1.1 desired=enabled actual=running trusted=true\n@agnes/skill-helper@0.1.1 desired=enabled actual=running trusted=true\n@yanzheng/agh-plugin@0.6.0 desired=enabled actual=running trusted=true",
-  "ok": false,
-  "error": "ReferenceError: corpus1 is not defined"
+  "sessionId": "agnes:local:local-dev:cli:workspace:248e7795f05d4767",
+  "ok": true
 }
